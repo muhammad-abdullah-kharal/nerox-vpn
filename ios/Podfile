@@ -38,8 +38,7 @@ target 'Nerox' do
   end
 end
 
-# ✅ Yeh add karo — PacketTunnel extension ka apna target
+# PacketTunnel — WireGuardKit SPM se aayega, pod nahi
 target 'PacketTunnel' do
-  platform :ios, '15.0'  # ✅ yeh add karo
-  pod 'WireGuardKit'
+  platform :ios, '15.0'
 end

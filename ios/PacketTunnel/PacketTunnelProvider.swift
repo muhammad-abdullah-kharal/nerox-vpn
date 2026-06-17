@@ -1,8 +1,8 @@
 // PacketTunnelProvider.swift — Nerox VPN
-// This is the Network Extension that runs WireGuard inside iOS.
 
 import Foundation
 import NetworkExtension
+import WireGuardKit  // ✅ yeh import zaroor chahiye
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
   private lazy var adapter = WireGuardAdapter(with: self) { logLevel, message in
@@ -51,7 +51,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
           return
         }
 
-        // Parse rx_bytes and tx_bytes from the WireGuard runtime config
         var totalRx: UInt64 = 0
         var totalTx: UInt64 = 0
 

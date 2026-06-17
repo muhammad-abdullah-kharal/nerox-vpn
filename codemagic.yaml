@@ -174,40 +174,37 @@ workflows:
           WG_URL         = 'https://git.zx2c4.com/wireguard-apple'
           WG_VERSION     = '1.0.15-26'
 
-          # ── helpers ──────────────────────────────────────────────────────
           def configure_main(target)
             target.build_configurations.each do |c|
-              c.build_settings['CODE_SIGN_STYLE']             = 'Manual'
-              c.build_settings['DEVELOPMENT_TEAM']            = TEAM_ID
-              c.build_settings['PRODUCT_BUNDLE_IDENTIFIER']   = MAIN_BUNDLE_ID
-              c.build_settings['CODE_SIGN_ENTITLEMENTS']      = 'Nerox/Nerox.entitlements'
-              c.build_settings['PROVISIONING_PROFILE']        = MAIN_PROFILE
+              c.build_settings['CODE_SIGN_STYLE']                = 'Manual'
+              c.build_settings['DEVELOPMENT_TEAM']               = TEAM_ID
+              c.build_settings['PRODUCT_BUNDLE_IDENTIFIER']      = MAIN_BUNDLE_ID
+              c.build_settings['CODE_SIGN_ENTITLEMENTS']         = 'Nerox/Nerox.entitlements'
+              c.build_settings['PROVISIONING_PROFILE']           = MAIN_PROFILE
               c.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = MAIN_PROFILE
             end
           end
 
           def configure_packet(target)
             target.build_configurations.each do |c|
-              c.build_settings['SWIFT_VERSION']               = '5.0'
-              c.build_settings['IPHONEOS_DEPLOYMENT_TARGET']  = '15.0'
-              c.build_settings['CODE_SIGN_STYLE']             = 'Manual'
-              c.build_settings['DEVELOPMENT_TEAM']            = TEAM_ID
-              c.build_settings['PRODUCT_NAME']                = 'PacketTunnel'
-              c.build_settings['PRODUCT_BUNDLE_IDENTIFIER']   = PKT_BUNDLE_ID
-              c.build_settings['CODE_SIGN_ENTITLEMENTS']      = 'PacketTunnel/PacketTunnel.entitlements'
-              c.build_settings['GENERATE_INFOPLIST_FILE']     = 'NO'
-              c.build_settings['INFOPLIST_FILE']              = 'PacketTunnel/Info.plist'
-              c.build_settings['PROVISIONING_PROFILE']        = PKT_PROFILE
+              c.build_settings['SWIFT_VERSION']                  = '5.0'
+              c.build_settings['IPHONEOS_DEPLOYMENT_TARGET']     = '15.0'
+              c.build_settings['CODE_SIGN_STYLE']                = 'Manual'
+              c.build_settings['DEVELOPMENT_TEAM']               = TEAM_ID
+              c.build_settings['PRODUCT_NAME']                   = 'PacketTunnel'
+              c.build_settings['PRODUCT_BUNDLE_IDENTIFIER']      = PKT_BUNDLE_ID
+              c.build_settings['CODE_SIGN_ENTITLEMENTS']         = 'PacketTunnel/PacketTunnel.entitlements'
+              c.build_settings['GENERATE_INFOPLIST_FILE']        = 'NO'
+              c.build_settings['INFOPLIST_FILE']                 = 'PacketTunnel/Info.plist'
+              c.build_settings['PROVISIONING_PROFILE']           = PKT_PROFILE
               c.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = PKT_PROFILE
             end
           end
 
           def add_wireguard_spm(project, target)
-            # Find or create the remote package reference
             pkg = project.root_object.package_references&.find do |r|
               r.respond_to?(:repositoryURL) && r.repositoryURL == WG_URL
             end
-
             unless pkg
               pkg = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
               pkg.repositoryURL = WG_URL
@@ -216,8 +213,6 @@ workflows:
               project.root_object.package_references << pkg
               puts 'WireGuardKit SPM reference added'
             end
-
-            # Link product to PacketTunnel target
             already = target.package_product_dependencies&.any? { |d| d.product_name == 'WireGuardKit' }
             unless already
               dep = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
@@ -235,19 +230,17 @@ workflows:
             end
             phase ||= app_target.new_copy_files_build_phase('Embed App Extensions')
             phase.dst_subfolder_spec = '13'
-
             ref = ext_target.product_reference
             unless phase.files_references.any? { |f| f == ref || f.path == ref.path }
               bf = phase.add_file_reference(ref)
               bf.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy', 'CodeSignOnCopy'] }
             end
-
             unless app_target.dependencies.any? { |d| d.target == ext_target }
               proxy = project.new(Xcodeproj::Project::Object::PBXContainerItemProxy)
-              proxy.container_portal         = project.root_object.uuid
-              proxy.proxy_type               = '1'
-              proxy.remote_global_id_string  = ext_target.uuid
-              proxy.remote_info              = ext_target.name
+              proxy.container_portal        = project.root_object.uuid
+              proxy.proxy_type              = '1'
+              proxy.remote_global_id_string = ext_target.uuid
+              proxy.remote_info             = ext_target.name
               dep = project.new(Xcodeproj::Project::Object::PBXTargetDependency)
               dep.target       = ext_target
               dep.target_proxy = proxy
@@ -255,16 +248,33 @@ workflows:
             end
           end
 
-          # ── main ─────────────────────────────────────────────────────────
+          # ── Remove any manually added font references to avoid duplicate copy ──
+          def remove_duplicate_fonts(project, target)
+            fonts_group = project.main_group.find_subpath('Fonts', false)
+            return unless fonts_group
+            fonts_group.files.each do |file_ref|
+              target.resources_build_phase.files.each do |build_file|
+                if build_file.file_ref == file_ref
+                  target.resources_build_phase.remove_build_file(build_file)
+                  puts "Removed duplicate font: #{file_ref.path}"
+                end
+              end
+            end
+            fonts_group.remove_from_project
+            puts 'Fonts group removed from project (CocoaPods handles fonts)'
+          end
+
+          # ── main ──
           project     = Xcodeproj::Project.open('Nerox.xcodeproj')
           main_target = project.targets.find { |t| t.name == 'Nerox' }
           raise 'Nerox target not found' unless main_target
 
           configure_main(main_target)
+          remove_duplicate_fonts(project, main_target)
 
           pkt_target = project.targets.find { |t| t.name == 'PacketTunnel' }
           if pkt_target
-            puts 'PacketTunnel target already exists — updating'
+            puts 'PacketTunnel target exists — updating'
           else
             puts 'Creating PacketTunnel target'
             pkt_target = project.new_target(:app_extension, 'PacketTunnel', :ios, '15.0')
@@ -281,34 +291,7 @@ workflows:
           RUBYSCRIPT
 
       # ─────────────────────────────────────────────
-      # 4. Link vector icon fonts
-      # ─────────────────────────────────────────────
-      - name: Link Vector Icon Fonts to Xcode
-        script: |
-          cd ios
-          gem install xcodeproj --quiet
-          ruby << 'RUBYSCRIPT'
-          require 'xcodeproj'
-          project     = Xcodeproj::Project.open('Nerox.xcodeproj')
-          main_target = project.targets.find { |t| t.name == 'Nerox' }
-          grp = project.main_group.find_subpath('Fonts', true)
-          grp.set_source_tree('<group>')
-          grp.set_path('Fonts')
-          fonts_dir = File.expand_path('../../ios/Fonts', __FILE__)
-          Dir.glob("#{fonts_dir}/*.ttf").each do |fp|
-            name = File.basename(fp)
-            unless grp.files.any? { |f| f.path == name }
-              ref = grp.new_file(name)
-              main_target.resources_build_phase.add_file_reference(ref)
-              puts "Added font: #{name}"
-            end
-          end
-          project.save
-          puts 'Fonts linked!'
-          RUBYSCRIPT
-
-      # ─────────────────────────────────────────────
-      # 5. Install CocoaPods
+      # 4. Install CocoaPods
       # ─────────────────────────────────────────────
       - name: Install pods
         script: |
@@ -316,7 +299,7 @@ workflows:
           NO_FLIPPER=1 pod install
 
       # ─────────────────────────────────────────────
-      # 6. Code signing setup
+      # 5. Code signing setup
       # ─────────────────────────────────────────────
       - name: Set up code signing
         script: |
@@ -324,7 +307,6 @@ workflows:
 
           echo $CM_CERTIFICATE | base64 --decode > /tmp/certificate.p12
 
-          # Try login keychain first, fallback to codemagic keychain
           security import /tmp/certificate.p12 \
             -k ~/Library/Keychains/login.keychain-db \
             -P "$CM_CERTIFICATE_PASSWORD" \
@@ -355,7 +337,7 @@ workflows:
           ls "$HOME/Library/MobileDevice/Provisioning Profiles/"
 
       # ─────────────────────────────────────────────
-      # 7. Export options plist
+      # 6. Export options plist
       # ─────────────────────────────────────────────
       - name: Create export options
         script: |
@@ -382,15 +364,15 @@ workflows:
           EXPORTOPTIONS
 
       # ─────────────────────────────────────────────
-      # 8. Build IPA  (resolve → patch → archive → export)
+      # 7. Build IPA  (resolve → patch → archive → export)
       # ─────────────────────────────────────────────
       - name: Build iOS IPA
         script: |
-          set -e  # exit on any error immediately
+          set -e
 
           DERIVED_DATA="build/DerivedData"
 
-          # ── 8a. Resolve SPM packages so WireGuardKitC.h is on disk ──────
+          # ── 7a. Resolve SPM packages ──────────────────────────────────────
           echo "▶ Resolving SPM packages..."
           xcodebuild \
             -workspace ios/Nerox.xcworkspace \
@@ -398,7 +380,7 @@ workflows:
             -resolvePackageDependencies \
             -derivedDataPath "$DERIVED_DATA"
 
-          # ── 8b. Patch WireGuardKitC.h for Xcode 26 ──────────────────────
+          # ── 7b. Patch WireGuardKitC.h for Xcode 26 ───────────────────────
           echo "▶ Patching WireGuardKitC.h..."
           WG_HEADER=$(find "$DERIVED_DATA" -name "WireGuardKitC.h" 2>/dev/null | head -1)
 
@@ -408,7 +390,6 @@ workflows:
           fi
 
           echo "Found: $WG_HEADER"
-
           if grep -q "sys/types.h" "$WG_HEADER"; then
             echo "Already patched — skipping"
           else
@@ -416,7 +397,7 @@ workflows:
             echo "✅ Patched successfully"
           fi
 
-          # ── 8c. Archive ──────────────────────────────────────────────────
+          # ── 7c. Archive ───────────────────────────────────────────────────
           echo "▶ Archiving..."
           xcodebuild \
             -workspace ios/Nerox.xcworkspace \
@@ -430,7 +411,7 @@ workflows:
             CODE_SIGN_IDENTITY="iPhone Distribution" \
             COMPILER_INDEX_STORE_ENABLE=NO
 
-          # ── 8d. Verify entitlements ──────────────────────────────────────
+          # ── 7d. Verify entitlements ───────────────────────────────────────
           echo "▶ Main app entitlements:"
           codesign -d --entitlements :- \
             build/Nerox.xcarchive/Products/Applications/Nerox.app 2>/dev/null || true
@@ -439,7 +420,7 @@ workflows:
           codesign -d --entitlements :- \
             build/Nerox.xcarchive/Products/Applications/Nerox.app/PlugIns/PacketTunnel.appex 2>/dev/null || true
 
-          # ── 8e. Export IPA ───────────────────────────────────────────────
+          # ── 7e. Export IPA ────────────────────────────────────────────────
           echo "▶ Exporting IPA..."
           xcodebuild \
             -exportArchive \

@@ -1,0 +1,53 @@
+// Copy this file into the Xcode PacketTunnel target after adding WireGuardKit.
+// It is intentionally a template because the extension target and Apple entitlement
+// must be created/signable in Xcode on macOS.
+
+import Foundation
+import NetworkExtension
+import WireGuardKit
+
+final class PacketTunnelProvider: NEPacketTunnelProvider {
+  private lazy var adapter = WireGuardAdapter(with: self) { logLevel, message in
+    NSLog("[WireGuard] \(message)")
+  }
+
+  override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+    guard
+      let tunnelProtocol = protocolConfiguration as? NETunnelProviderProtocol,
+      let providerConfig = tunnelProtocol.providerConfiguration,
+      let wgQuickConfig = providerConfig["wgQuickConfig"] as? String,
+      !wgQuickConfig.isEmpty
+    else {
+      completionHandler(PacketTunnelError.missingWireGuardConfig)
+      return
+    }
+
+    let tunnelName = (providerConfig["tunnelName"] as? String) ?? "nerox"
+
+    do {
+      let tunnelConfiguration = try TunnelConfiguration(fromWgQuickConfig: wgQuickConfig, called: tunnelName)
+      adapter.start(tunnelConfiguration: tunnelConfiguration) { error in
+        completionHandler(error)
+      }
+    } catch {
+      completionHandler(error)
+    }
+  }
+
+  override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+    adapter.stop { _ in
+      completionHandler()
+    }
+  }
+}
+
+enum PacketTunnelError: LocalizedError {
+  case missingWireGuardConfig
+
+  var errorDescription: String? {
+    switch self {
+    case .missingWireGuardConfig:
+      return "Missing wgQuickConfig in providerConfiguration"
+    }
+  }
+}

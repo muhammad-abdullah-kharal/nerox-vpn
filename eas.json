@@ -1,0 +1,33 @@
+{
+  "cli": {
+    "version": ">= 18.12.3",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "NO_FLIPPER": "1"
+      },
+      "ios": {
+        "image": "latest",
+        "cache": {
+          "key": "pods-cache-v2",
+          "paths": [
+            "ios/Pods"
+          ]
+        }
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

@@ -1,0 +1,31 @@
+name: Generate Podfile.lock
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pod-install:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Pod Install
+        run: |
+          cd ios
+          pod install --repo-update
+
+      - name: Commit Podfile.lock
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+          git add ios/Podfile.lock
+          git commit -m "chore: update Podfile.lock" || echo "No changes"
+          git push

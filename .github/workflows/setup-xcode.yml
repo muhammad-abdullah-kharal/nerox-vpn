@@ -1,0 +1,66 @@
+name: Setup Xcode Project
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup PacketTunnel in pbxproj
+        run: |
+          gem install xcodeproj
+          cd ios
+          ruby << 'RUBYSCRIPT'
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('Nerox.xcodeproj')
+          nerox_target = project.targets.find { |t| t.name == 'Nerox' }
+
+          unless project.targets.find { |t| t.name == 'PacketTunnel' }
+            target = project.new_target(:app_extension, 'PacketTunnel', :ios, '15.0')
+            pt_group = project.main_group.new_group('PacketTunnel', 'PacketTunnel')
+            pt_file = pt_group.new_file('PacketTunnelProvider.swift')
+            target.source_build_phase.add_file_reference(pt_file)
+            target.build_configurations.each do |config|
+              config.build_settings['SWIFT_VERSION'] = '5.0'
+              config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+              config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
+              config.build_settings['DEVELOPMENT_TEAM'] = '6ZN7399P3U'
+              config.build_settings['PRODUCT_NAME'] = 'PacketTunnel'
+              config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'org.reactjs.native.example.Nerox.PacketTunnel'
+              config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'PacketTunnel/PacketTunnel.entitlements'
+              config.build_settings['PROVISIONING_PROFILE'] = 'ba9b8b32-6949-4963-a3a3-f3e7c6a50d94'
+              config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = 'ba9b8b32-6949-4963-a3a3-f3e7c6a50d94'
+            end
+
+            embed_phase = nerox_target.new_copy_files_build_phase('Embed App Extensions')
+            embed_phase.dst_subfolder_spec = '13'
+            extension_ref = target.product_reference
+            build_file = embed_phase.add_file_reference(extension_ref)
+            build_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy', 'CodeSignOnCopy'] }
+
+            container_proxy = project.new(Xcodeproj::Project::Object::PBXContainerItemProxy)
+            container_proxy.container_portal = project.root_object.uuid
+            container_proxy.proxy_type = '1'
+            container_proxy.remote_global_id_string = target.uuid
+            container_proxy.remote_info = target.name
+
+            target_dependency = project.new(Xcodeproj::Project::Object::PBXTargetDependency)
+            target_dependency.target = target
+            target_dependency.target_proxy = container_proxy
+            nerox_target.dependencies << target_dependency
+
+            project.save
+            puts 'PacketTunnel added!'
+          end
+          RUBYSCRIPT
+
+      - name: Commit pbxproj
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+          git add ios/Nerox.xcodeproj/project.pbxproj
+          git commit -m "fix: add PacketTunnel target to pbxproj" || echo "No changes"
+          git push

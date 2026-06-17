@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "595221930597",
+    "project_id": "vpn-app-76d93",
+    "storage_bucket": "vpn-app-76d93.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:595221930597:android:b12aa123fddedf87e61c8c",
+        "android_client_info": {
+          "package_name": "com.vpn.appname"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "595221930597-ag3vka1rgq0smj7sedt00326upg7p31i.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.vpn.appname",
+            "certificate_hash": "94f3bc008832022a75369c7f1b68c96e0280b977"
+          }
+        },
+        {
+          "client_id": "595221930597-o1jn5ibcr7tp034qqjdc387s8jigoliv.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.vpn.appname",
+            "certificate_hash": "d8150fc382cb72617427e8d22c0a8a5df4e9c6f7"
+          }
+        },
+        {
+          "client_id": "595221930597-pj8dta32veg34qvtnp4u9jjlt1b51aft.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAjO1IVGEX_GYDY7MLVwe4FWGTVfdoxdZ8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "595221930597-pj8dta32veg34qvtnp4u9jjlt1b51aft.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

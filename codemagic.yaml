@@ -87,17 +87,14 @@ workflows:
           </plist>
           INFOPLIST
 
-          # ── Swift source – corrected with DNSServer(from:) and no try ──
+          # ── Swift source – final corrected version ──
           cat > PacketTunnel/PacketTunnelProvider.swift << 'SWIFTFILE'
           import Foundation
           import NetworkExtension
           import WireGuardKit
 
-          // MARK: - Parser for wg‑quick format (using WireGuardKit types)
-
           extension TunnelConfiguration {
               static func fromWgQuickConfig(_ config: String, called name: String?) throws -> TunnelConfiguration {
-                  // Dummy keys – replaced later
                   let dummyPrivateKey = PrivateKey(base64Key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")!
                   let dummyPublicKey = PublicKey(base64Key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")!
 
@@ -202,8 +199,6 @@ workflows:
                           parts[1].trimmingCharacters(in: .whitespaces))
               }
           }
-
-          // MARK: - PacketTunnelProvider
 
           class PacketTunnelProvider: NEPacketTunnelProvider {
               private lazy var adapter = WireGuardAdapter(with: self) { _, message in
@@ -335,6 +330,9 @@ workflows:
               c.build_settings['INFOPLIST_FILE']                 = 'PacketTunnel/Info.plist'
               c.build_settings['PROVISIONING_PROFILE']           = PKT_PROFILE
               c.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = PKT_PROFILE
+              # ── Link wg-go static library ──
+              c.build_settings['OTHER_LDFLAGS']                  = '$(inherited) -lwg-go'
+              c.build_settings['LIBRARY_SEARCH_PATHS']           = '$(inherited) "$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/PackageFrameworks"'
             end
           end
 

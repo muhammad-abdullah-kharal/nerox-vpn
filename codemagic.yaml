@@ -87,7 +87,7 @@ workflows:
           </plist>
           INFOPLIST
 
-          # ── Swift source with correct WireGuardKit parser ──
+          # ── Swift source – corrected with DNSServer(from:) and no try ──
           cat > PacketTunnel/PacketTunnelProvider.swift << 'SWIFTFILE'
           import Foundation
           import NetworkExtension
@@ -97,8 +97,9 @@ workflows:
 
           extension TunnelConfiguration {
               static func fromWgQuickConfig(_ config: String, called name: String?) throws -> TunnelConfiguration {
-                  let dummyPrivateKey = try PrivateKey(base64Key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")!
-                  let dummyPublicKey = try PublicKey(base64Key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")!
+                  // Dummy keys – replaced later
+                  let dummyPrivateKey = PrivateKey(base64Key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")!
+                  let dummyPublicKey = PublicKey(base64Key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")!
 
                   var interface = InterfaceConfiguration(privateKey: dummyPrivateKey)
                   var peers: [PeerConfiguration] = []
@@ -130,7 +131,7 @@ workflows:
                       case "Interface":
                           switch key {
                           case "PrivateKey":
-                              if let privateKey = try? PrivateKey(base64Key: value) {
+                              if let privateKey = PrivateKey(base64Key: value) {
                                   interface.privateKey = privateKey
                               }
                           case "Address":
@@ -139,8 +140,8 @@ workflows:
                               }
                               interface.addresses = addresses
                           case "DNS":
-                              let dnsServers = value.split(separator: ",").map {
-                                  DNSServer(string: String($0))!
+                              let dnsServers = value.split(separator: ",").compactMap {
+                                  DNSServer(from: String($0))
                               }
                               interface.dns = dnsServers
                           case "MTU":
@@ -154,11 +155,11 @@ workflows:
                           guard var peer = currentPeer else { continue }
                           switch key {
                           case "PublicKey":
-                              if let publicKey = try? PublicKey(base64Key: value) {
+                              if let publicKey = PublicKey(base64Key: value) {
                                   peer.publicKey = publicKey
                               }
                           case "PresharedKey":
-                              if let preSharedKey = try? PreSharedKey(base64Key: value) {
+                              if let preSharedKey = PreSharedKey(base64Key: value) {
                                   peer.preSharedKey = preSharedKey
                               }
                           case "AllowedIPs":

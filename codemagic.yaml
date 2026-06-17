@@ -87,7 +87,9 @@ workflows:
           </plist>
           INFOPLIST
 
-          # ── Swift source (always overwrite so latest version is used) ──
+          # ── Swift source ──
+          # NOTE: TunnelConfiguration(fromWgQuickConfig:called:) is the correct API
+          # for WireGuardKit 1.0.15-26 — it parses wg-quick format config strings.
           cat > PacketTunnel/PacketTunnelProvider.swift << 'SWIFTFILE'
           import Foundation
           import NetworkExtension
@@ -112,12 +114,24 @@ workflows:
                 completionHandler(VPNError.missingConfig)
                 return
               }
-              let name = (cfg["tunnelName"] as? String) ?? "nerox"
+
+              let tunnelName = (cfg["tunnelName"] as? String) ?? "nerox"
+
+              let tunnelConfig: TunnelConfiguration
               do {
-                let tunnelCfg = try TunnelConfiguration(fromWgQuickConfig: wgCfg, called: name)
-                adapter.start(tunnelConfiguration: tunnelCfg, completionHandler: completionHandler)
+                tunnelConfig = try TunnelConfiguration(fromWgQuickConfig: wgCfg, called: tunnelName)
               } catch {
                 completionHandler(error)
+                return
+              }
+
+              adapter.start(tunnelConfiguration: tunnelConfig) { adapterError in
+                if let adapterError = adapterError {
+                  NSLog("[WireGuard] start error: \(adapterError)")
+                  completionHandler(adapterError)
+                } else {
+                  completionHandler(nil)
+                }
               }
             }
 
@@ -135,16 +149,22 @@ workflows:
               guard
                 let msg = String(data: messageData, encoding: .utf8),
                 msg == "getTransferredByteCount"
-              else { completionHandler?(nil); return }
+              else {
+                completionHandler?(nil)
+                return
+              }
 
               adapter.getRuntimeConfiguration { cfgString in
-                guard let cfgString = cfgString else { completionHandler?(nil); return }
+                guard let cfgString = cfgString else {
+                  completionHandler?(nil)
+                  return
+                }
                 var rx: UInt64 = 0
                 var tx: UInt64 = 0
                 for line in cfgString.split(separator: "\n") {
                   let t = line.trimmingCharacters(in: .whitespaces)
-                  if t.hasPrefix("rx_bytes=") { rx += UInt64(t.dropFirst(9)) ?? 0 }
-                  else if t.hasPrefix("tx_bytes=") { tx += UInt64(t.dropFirst(9)) ?? 0 }
+                  if t.hasPrefix("rx_bytes=") { rx += UInt64(t.dropFirst("rx_bytes=".count)) ?? 0 }
+                  else if t.hasPrefix("tx_bytes=") { tx += UInt64(t.dropFirst("tx_bytes=".count)) ?? 0 }
                 }
                 let data = try? JSONSerialization.data(
                   withJSONObject: ["totalReceived": rx, "totalSent": tx]
@@ -248,7 +268,6 @@ workflows:
             end
           end
 
-          # ── Remove any manually added font references to avoid duplicate copy ──
           def remove_duplicate_fonts(project, target)
             fonts_group = project.main_group.find_subpath('Fonts', false)
             return unless fonts_group
@@ -261,7 +280,7 @@ workflows:
               end
             end
             fonts_group.remove_from_project
-            puts 'Fonts group removed from project (CocoaPods handles fonts)'
+            puts 'Fonts group removed (CocoaPods handles fonts via RNVectorIcons)'
           end
 
           # ── main ──
@@ -333,7 +352,7 @@ workflows:
           echo $CM_PROVISIONING_PROFILE_PACKETTUNNEL | base64 --decode \
             > "$HOME/Library/MobileDevice/Provisioning Profiles/ba9b8b32-6949-4963-a3a3-f3e7c6a50d94.mobileprovision"
 
-          echo "✅ Profiles installed:"
+          echo "Profiles installed:"
           ls "$HOME/Library/MobileDevice/Provisioning Profiles/"
 
       # ─────────────────────────────────────────────
@@ -373,7 +392,7 @@ workflows:
           DERIVED_DATA="build/DerivedData"
 
           # ── 7a. Resolve SPM packages ──────────────────────────────────────
-          echo "▶ Resolving SPM packages..."
+          echo "Resolving SPM packages..."
           xcodebuild \
             -workspace ios/Nerox.xcworkspace \
             -scheme Nerox \
@@ -381,24 +400,28 @@ workflows:
             -derivedDataPath "$DERIVED_DATA"
 
           # ── 7b. Patch WireGuardKitC.h for Xcode 26 ───────────────────────
-          echo "▶ Patching WireGuardKitC.h..."
+          # Xcode 26 changed how BSD types (u_int32_t etc.) are imported.
+          # WireGuardKitC.h needs an explicit #include <sys/types.h> to compile.
+          echo "Patching WireGuardKitC.h for Xcode 26..."
           WG_HEADER=$(find "$DERIVED_DATA" -name "WireGuardKitC.h" 2>/dev/null | head -1)
 
           if [ -z "$WG_HEADER" ]; then
-            echo "❌ WireGuardKitC.h not found after package resolve!"
+            echo "ERROR: WireGuardKitC.h not found after package resolve!"
+            find "$DERIVED_DATA" -name "*.h" 2>/dev/null | grep -i wireguard || true
             exit 1
           fi
 
-          echo "Found: $WG_HEADER"
+          echo "Found header: $WG_HEADER"
           if grep -q "sys/types.h" "$WG_HEADER"; then
             echo "Already patched — skipping"
           else
             sed -i '' '1s/^/#include <sys\/types.h>\n/' "$WG_HEADER"
-            echo "✅ Patched successfully"
+            echo "Patched successfully"
+            head -3 "$WG_HEADER"
           fi
 
           # ── 7c. Archive ───────────────────────────────────────────────────
-          echo "▶ Archiving..."
+          echo "Archiving..."
           xcodebuild \
             -workspace ios/Nerox.xcworkspace \
             -scheme Nerox \
@@ -412,23 +435,23 @@ workflows:
             COMPILER_INDEX_STORE_ENABLE=NO
 
           # ── 7d. Verify entitlements ───────────────────────────────────────
-          echo "▶ Main app entitlements:"
+          echo "Main app entitlements:"
           codesign -d --entitlements :- \
             build/Nerox.xcarchive/Products/Applications/Nerox.app 2>/dev/null || true
 
-          echo "▶ PacketTunnel entitlements:"
+          echo "PacketTunnel entitlements:"
           codesign -d --entitlements :- \
             build/Nerox.xcarchive/Products/Applications/Nerox.app/PlugIns/PacketTunnel.appex 2>/dev/null || true
 
           # ── 7e. Export IPA ────────────────────────────────────────────────
-          echo "▶ Exporting IPA..."
+          echo "Exporting IPA..."
           xcodebuild \
             -exportArchive \
             -archivePath build/Nerox.xcarchive \
             -exportOptionsPlist /tmp/export_options.plist \
             -exportPath build/ios/ipa
 
-          echo "✅ Build complete!"
+          echo "Build complete!"
 
     artifacts:
       - build/ios/ipa/*.ipa

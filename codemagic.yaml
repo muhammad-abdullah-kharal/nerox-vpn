@@ -11,10 +11,18 @@ workflows:
       cocoapods: default
       groups:
         - deafault
+
     scripts:
+
+      # ─────────────────────────────────────────────
+      # 1. Install JS dependencies
+      # ─────────────────────────────────────────────
       - name: Install dependencies
         script: npm install
 
+      # ─────────────────────────────────────────────
+      # 2. Bump build number from TestFlight
+      # ─────────────────────────────────────────────
       - name: Increment build number
         script: |
           cd ios
@@ -22,11 +30,15 @@ workflows:
           NEXT=$((BUILD_NUMBER + 1))
           agvtool new-version -all $NEXT
 
+      # ─────────────────────────────────────────────
+      # 3. Create PacketTunnel files + configure Xcode project
+      # ─────────────────────────────────────────────
       - name: Setup PacketTunnel Target
         script: |
           cd ios
           mkdir -p PacketTunnel
 
+          # ── Entitlements ──
           cat > PacketTunnel/PacketTunnel.entitlements << 'ENTITLEMENTS'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -44,6 +56,7 @@ workflows:
           </plist>
           ENTITLEMENTS
 
+          # ── Info.plist ──
           cat > PacketTunnel/Info.plist << 'INFOPLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -74,249 +87,276 @@ workflows:
           </plist>
           INFOPLIST
 
+          # ── Swift source (always overwrite so latest version is used) ──
           cat > PacketTunnel/PacketTunnelProvider.swift << 'SWIFTFILE'
           import Foundation
           import NetworkExtension
           import WireGuardKit
 
           class PacketTunnelProvider: NEPacketTunnelProvider {
-            private lazy var adapter = WireGuardAdapter(with: self) { logLevel, message in
+
+            private lazy var adapter = WireGuardAdapter(with: self) { _, message in
               NSLog("[WireGuard] \(message)")
             }
 
-            override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+            override func startTunnel(
+              options: [String: NSObject]?,
+              completionHandler: @escaping (Error?) -> Void
+            ) {
               guard
-                let tunnelProtocol = protocolConfiguration as? NETunnelProviderProtocol,
-                let providerConfig = tunnelProtocol.providerConfiguration,
-                let wgQuickConfig = providerConfig["wgQuickConfig"] as? String,
-                !wgQuickConfig.isEmpty
+                let proto = protocolConfiguration as? NETunnelProviderProtocol,
+                let cfg   = proto.providerConfiguration,
+                let wgCfg = cfg["wgQuickConfig"] as? String,
+                !wgCfg.isEmpty
               else {
-                completionHandler(PacketTunnelError.missingWireGuardConfig)
+                completionHandler(VPNError.missingConfig)
                 return
               }
-              let tunnelName = (providerConfig["tunnelName"] as? String) ?? "nerox"
+              let name = (cfg["tunnelName"] as? String) ?? "nerox"
               do {
-                let tunnelConfiguration = try TunnelConfiguration(fromWgQuickConfig: wgQuickConfig, called: tunnelName)
-                adapter.start(tunnelConfiguration: tunnelConfiguration) { error in
-                  completionHandler(error)
-                }
+                let tunnelCfg = try TunnelConfiguration(fromWgQuickConfig: wgCfg, called: name)
+                adapter.start(tunnelConfiguration: tunnelCfg, completionHandler: completionHandler)
               } catch {
                 completionHandler(error)
               }
             }
 
-            override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+            override func stopTunnel(
+              with reason: NEProviderStopReason,
+              completionHandler: @escaping () -> Void
+            ) {
               adapter.stop { _ in completionHandler() }
             }
 
-            override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
-              guard let messageString = String(data: messageData, encoding: .utf8) else {
-                completionHandler?(nil); return
-              }
-              if messageString == "getTransferredByteCount" {
-                adapter.getRuntimeConfiguration { configString in
-                  guard let configString = configString else { completionHandler?(nil); return }
-                  var totalRx: UInt64 = 0
-                  var totalTx: UInt64 = 0
-                  for line in configString.split(separator: "\n") {
-                    let trimmed = line.trimmingCharacters(in: .whitespaces)
-                    if trimmed.hasPrefix("rx_bytes=") { totalRx += UInt64(trimmed.dropFirst("rx_bytes=".count)) ?? 0 }
-                    else if trimmed.hasPrefix("tx_bytes=") { totalTx += UInt64(trimmed.dropFirst("tx_bytes=".count)) ?? 0 }
-                  }
-                  if let jsonData = try? JSONSerialization.data(withJSONObject: ["totalReceived": totalRx, "totalSent": totalTx]) {
-                    completionHandler?(jsonData)
-                  } else { completionHandler?(nil) }
+            override func handleAppMessage(
+              _ messageData: Data,
+              completionHandler: ((Data?) -> Void)?
+            ) {
+              guard
+                let msg = String(data: messageData, encoding: .utf8),
+                msg == "getTransferredByteCount"
+              else { completionHandler?(nil); return }
+
+              adapter.getRuntimeConfiguration { cfgString in
+                guard let cfgString = cfgString else { completionHandler?(nil); return }
+                var rx: UInt64 = 0
+                var tx: UInt64 = 0
+                for line in cfgString.split(separator: "\n") {
+                  let t = line.trimmingCharacters(in: .whitespaces)
+                  if t.hasPrefix("rx_bytes=") { rx += UInt64(t.dropFirst(9)) ?? 0 }
+                  else if t.hasPrefix("tx_bytes=") { tx += UInt64(t.dropFirst(9)) ?? 0 }
                 }
-              } else { completionHandler?(nil) }
+                let data = try? JSONSerialization.data(
+                  withJSONObject: ["totalReceived": rx, "totalSent": tx]
+                )
+                completionHandler?(data)
+              }
             }
           }
 
-          enum PacketTunnelError: LocalizedError {
-            case missingWireGuardConfig
-            var errorDescription: String? {
-              switch self {
-              case .missingWireGuardConfig: return "Missing wgQuickConfig in providerConfiguration"
-              }
-            }
+          enum VPNError: LocalizedError {
+            case missingConfig
+            var errorDescription: String? { "Missing wgQuickConfig in providerConfiguration" }
           }
           SWIFTFILE
 
+          # ── xcodeproj gem + Ruby script ──
           gem install xcodeproj --quiet
+
           ruby << 'RUBYSCRIPT'
           require 'xcodeproj'
 
-          TEAM_ID = '6ZN7399P3U'
+          TEAM_ID        = '6ZN7399P3U'
           MAIN_BUNDLE_ID = 'org.reactjs.native.example.Nerox'
-          PACKET_BUNDLE_ID = "#{MAIN_BUNDLE_ID}.PacketTunnel"
-          MAIN_PROFILE = '4250a012-2d5e-4164-a0d9-3c6b59950937'
-          PACKET_PROFILE = 'ba9b8b32-6949-4963-a3a3-f3e7c6a50d94'
-          WIREGUARD_URL = 'https://git.zx2c4.com/wireguard-apple'
-          WIREGUARD_VERSION = '1.0.15-26'
+          PKT_BUNDLE_ID  = "#{MAIN_BUNDLE_ID}.PacketTunnel"
+          MAIN_PROFILE   = '4250a012-2d5e-4164-a0d9-3c6b59950937'
+          PKT_PROFILE    = 'ba9b8b32-6949-4963-a3a3-f3e7c6a50d94'
+          WG_URL         = 'https://git.zx2c4.com/wireguard-apple'
+          WG_VERSION     = '1.0.15-26'
 
-          def configure_main_target(target)
-            target.build_configurations.each do |config|
-              config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
-              config.build_settings['DEVELOPMENT_TEAM'] = TEAM_ID
-              config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = MAIN_BUNDLE_ID
-              config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'Nerox/Nerox.entitlements'
-              config.build_settings['PROVISIONING_PROFILE'] = MAIN_PROFILE
-              config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = MAIN_PROFILE
+          # ── helpers ──────────────────────────────────────────────────────
+          def configure_main(target)
+            target.build_configurations.each do |c|
+              c.build_settings['CODE_SIGN_STYLE']             = 'Manual'
+              c.build_settings['DEVELOPMENT_TEAM']            = TEAM_ID
+              c.build_settings['PRODUCT_BUNDLE_IDENTIFIER']   = MAIN_BUNDLE_ID
+              c.build_settings['CODE_SIGN_ENTITLEMENTS']      = 'Nerox/Nerox.entitlements'
+              c.build_settings['PROVISIONING_PROFILE']        = MAIN_PROFILE
+              c.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = MAIN_PROFILE
             end
           end
 
-          def configure_packet_target(target)
-            target.build_configurations.each do |config|
-              config.build_settings['SWIFT_VERSION'] = '5.0'
-              config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
-              config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
-              config.build_settings['DEVELOPMENT_TEAM'] = TEAM_ID
-              config.build_settings['PRODUCT_NAME'] = 'PacketTunnel'
-              config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = PACKET_BUNDLE_ID
-              config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'PacketTunnel/PacketTunnel.entitlements'
-              config.build_settings['GENERATE_INFOPLIST_FILE'] = 'NO'
-              config.build_settings['INFOPLIST_FILE'] = 'PacketTunnel/Info.plist'
-              config.build_settings['PROVISIONING_PROFILE'] = PACKET_PROFILE
-              config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = PACKET_PROFILE
+          def configure_packet(target)
+            target.build_configurations.each do |c|
+              c.build_settings['SWIFT_VERSION']               = '5.0'
+              c.build_settings['IPHONEOS_DEPLOYMENT_TARGET']  = '15.0'
+              c.build_settings['CODE_SIGN_STYLE']             = 'Manual'
+              c.build_settings['DEVELOPMENT_TEAM']            = TEAM_ID
+              c.build_settings['PRODUCT_NAME']                = 'PacketTunnel'
+              c.build_settings['PRODUCT_BUNDLE_IDENTIFIER']   = PKT_BUNDLE_ID
+              c.build_settings['CODE_SIGN_ENTITLEMENTS']      = 'PacketTunnel/PacketTunnel.entitlements'
+              c.build_settings['GENERATE_INFOPLIST_FILE']     = 'NO'
+              c.build_settings['INFOPLIST_FILE']              = 'PacketTunnel/Info.plist'
+              c.build_settings['PROVISIONING_PROFILE']        = PKT_PROFILE
+              c.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = PKT_PROFILE
             end
           end
 
           def add_wireguard_spm(project, target)
-            # Check if package already added
-            existing_pkg = project.root_object.package_references&.find do |ref|
-              ref.respond_to?(:repositoryURL) && ref.repositoryURL == repositoryURL
+            # Find or create the remote package reference
+            pkg = project.root_object.package_references&.find do |r|
+              r.respond_to?(:repositoryURL) && r.repositoryURL == WG_URL
             end
 
-            unless existing_pkg
-              existing_pkg = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
-              existing_pkg.repositoryURL = WIREGUARD_URL
-              existing_pkg.requirement = { 'kind' => 'exactVersion', 'version' => WIREGUARD_VERSION }
+            unless pkg
+              pkg = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+              pkg.repositoryURL = WG_URL
+              pkg.requirement   = { 'kind' => 'exactVersion', 'version' => WG_VERSION }
               project.root_object.package_references ||= []
-              project.root_object.package_references << existing_pkg
-              puts 'WireGuardKit SPM package reference added!'
+              project.root_object.package_references << pkg
+              puts 'WireGuardKit SPM reference added'
             end
 
-            # Check if product dependency already added to target
-            already_linked = target.package_product_dependencies&.any? do |dep|
-              dep.product_name == 'WireGuardKit'
-            end
-
-            unless already_linked
-              pkg_dep = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
-              pkg_dep.package = existing_pkg
-              pkg_dep.product_name = 'WireGuardKit'
-              target.package_product_dependencies << pkg_dep
-              puts 'WireGuardKit linked to PacketTunnel target!'
+            # Link product to PacketTunnel target
+            already = target.package_product_dependencies&.any? { |d| d.product_name == 'WireGuardKit' }
+            unless already
+              dep = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+              dep.package      = pkg
+              dep.product_name = 'WireGuardKit'
+              target.package_product_dependencies << dep
+              puts 'WireGuardKit linked to PacketTunnel'
             end
           end
 
-          def ensure_packet_tunnel_embedded(project, app_target, packet_target)
-            embed_phase = app_target.build_phases.find do |phase|
-              phase.is_a?(Xcodeproj::Project::Object::PBXCopyFilesBuildPhase) && phase.name == 'Embed App Extensions'
+          def embed_extension(project, app_target, ext_target)
+            phase = app_target.build_phases.find do |p|
+              p.is_a?(Xcodeproj::Project::Object::PBXCopyFilesBuildPhase) &&
+                p.name == 'Embed App Extensions'
             end
-            embed_phase ||= app_target.new_copy_files_build_phase('Embed App Extensions')
-            embed_phase.dst_subfolder_spec = '13'
+            phase ||= app_target.new_copy_files_build_phase('Embed App Extensions')
+            phase.dst_subfolder_spec = '13'
 
-            extension_ref = packet_target.product_reference
-            already_embedded = embed_phase.files_references.any? { |f| f == extension_ref || f.path == extension_ref.path }
-            unless already_embedded
-              build_file = embed_phase.add_file_reference(extension_ref)
-              build_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy', 'CodeSignOnCopy'] }
+            ref = ext_target.product_reference
+            unless phase.files_references.any? { |f| f == ref || f.path == ref.path }
+              bf = phase.add_file_reference(ref)
+              bf.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy', 'CodeSignOnCopy'] }
             end
 
-            already_depends = app_target.dependencies.any? { |d| d.target == packet_target }
-            unless already_depends
-              container_proxy = project.new(Xcodeproj::Project::Object::PBXContainerItemProxy)
-              container_proxy.container_portal = project.root_object.uuid
-              container_proxy.proxy_type = '1'
-              container_proxy.remote_global_id_string = packet_target.uuid
-              container_proxy.remote_info = packet_target.name
-              target_dependency = project.new(Xcodeproj::Project::Object::PBXTargetDependency)
-              target_dependency.target = packet_target
-              target_dependency.target_proxy = container_proxy
-              app_target.dependencies << target_dependency
+            unless app_target.dependencies.any? { |d| d.target == ext_target }
+              proxy = project.new(Xcodeproj::Project::Object::PBXContainerItemProxy)
+              proxy.container_portal         = project.root_object.uuid
+              proxy.proxy_type               = '1'
+              proxy.remote_global_id_string  = ext_target.uuid
+              proxy.remote_info              = ext_target.name
+              dep = project.new(Xcodeproj::Project::Object::PBXTargetDependency)
+              dep.target       = ext_target
+              dep.target_proxy = proxy
+              app_target.dependencies << dep
             end
           end
 
-          project = Xcodeproj::Project.open('Nerox.xcodeproj')
-          nerox_target = project.targets.find { |t| t.name == 'Nerox' }
-          raise 'Nerox target not found' unless nerox_target
+          # ── main ─────────────────────────────────────────────────────────
+          project     = Xcodeproj::Project.open('Nerox.xcodeproj')
+          main_target = project.targets.find { |t| t.name == 'Nerox' }
+          raise 'Nerox target not found' unless main_target
 
-          configure_main_target(nerox_target)
+          configure_main(main_target)
 
-          existing = project.targets.find { |t| t.name == 'PacketTunnel' }
-          if existing
-            configure_packet_target(existing)
-            add_wireguard_spm(project, existing)
-            ensure_packet_tunnel_embedded(project, nerox_target, existing)
-            project.save
-            puts 'PacketTunnel updated!'
+          pkt_target = project.targets.find { |t| t.name == 'PacketTunnel' }
+          if pkt_target
+            puts 'PacketTunnel target already exists — updating'
           else
-            target = project.new_target(:app_extension, 'PacketTunnel', :ios, '15.0')
-            pt_group = project.main_group.new_group('PacketTunnel', 'PacketTunnel')
-            pt_file = pt_group.new_file('PacketTunnelProvider.swift')
-            target.source_build_phase.add_file_reference(pt_file)
-            configure_packet_target(target)
-            add_wireguard_spm(project, target)
-            ensure_packet_tunnel_embedded(project, nerox_target, target)
-            project.save
-            puts 'PacketTunnel added and embedded!'
+            puts 'Creating PacketTunnel target'
+            pkt_target = project.new_target(:app_extension, 'PacketTunnel', :ios, '15.0')
+            grp  = project.main_group.new_group('PacketTunnel', 'PacketTunnel')
+            file = grp.new_file('PacketTunnelProvider.swift')
+            pkt_target.source_build_phase.add_file_reference(file)
           end
+
+          configure_packet(pkt_target)
+          add_wireguard_spm(project, pkt_target)
+          embed_extension(project, main_target, pkt_target)
+          project.save
+          puts 'Done — project saved'
           RUBYSCRIPT
 
+      # ─────────────────────────────────────────────
+      # 4. Link vector icon fonts
+      # ─────────────────────────────────────────────
       - name: Link Vector Icon Fonts to Xcode
         script: |
           cd ios
           gem install xcodeproj --quiet
           ruby << 'RUBYSCRIPT'
           require 'xcodeproj'
-          project = Xcodeproj::Project.open('Nerox.xcodeproj')
-          nerox_target = project.targets.find { |t| t.name == 'Nerox' }
-          fonts_group = project.main_group.find_subpath('Fonts', true)
-          fonts_group.set_source_tree('<group>')
-          fonts_group.set_path('Fonts')
-          fonts_dir = File.join(File.dirname(File.dirname(__FILE__)), 'ios', 'Fonts')
-          Dir.glob("#{fonts_dir}/*.ttf").each do |font_path|
-            font_name = File.basename(font_path)
-            already_added = fonts_group.files.any? { |f| f.path == font_name }
-            unless already_added
-              file_ref = fonts_group.new_file(font_name)
-              nerox_target.resources_build_phase.add_file_reference(file_ref)
-              puts "Added font: #{font_name}"
+          project     = Xcodeproj::Project.open('Nerox.xcodeproj')
+          main_target = project.targets.find { |t| t.name == 'Nerox' }
+          grp = project.main_group.find_subpath('Fonts', true)
+          grp.set_source_tree('<group>')
+          grp.set_path('Fonts')
+          fonts_dir = File.expand_path('../../ios/Fonts', __FILE__)
+          Dir.glob("#{fonts_dir}/*.ttf").each do |fp|
+            name = File.basename(fp)
+            unless grp.files.any? { |f| f.path == name }
+              ref = grp.new_file(name)
+              main_target.resources_build_phase.add_file_reference(ref)
+              puts "Added font: #{name}"
             end
           end
           project.save
-          puts "All fonts linked to Xcode project!"
+          puts 'Fonts linked!'
           RUBYSCRIPT
 
+      # ─────────────────────────────────────────────
+      # 5. Install CocoaPods
+      # ─────────────────────────────────────────────
       - name: Install pods
         script: |
           cd ios
           NO_FLIPPER=1 pod install
 
+      # ─────────────────────────────────────────────
+      # 6. Code signing setup
+      # ─────────────────────────────────────────────
       - name: Set up code signing
         script: |
           keychain initialize
+
           echo $CM_CERTIFICATE | base64 --decode > /tmp/certificate.p12
-          echo "P12 file info:"
-          ls -la /tmp/certificate.p12
-          file /tmp/certificate.p12
+
+          # Try login keychain first, fallback to codemagic keychain
           security import /tmp/certificate.p12 \
             -k ~/Library/Keychains/login.keychain-db \
             -P "$CM_CERTIFICATE_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security \
-            || security import /tmp/certificate.p12 \
+          || security import /tmp/certificate.p12 \
             -k /Users/builder/Library/codemagic-cli-tools/keychains/*.keychain-db \
             -P "$CM_CERTIFICATE_PASSWORD" \
             -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" /Users/builder/Library/codemagic-cli-tools/keychains/*.keychain-db 2>/dev/null || true
+
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k "" \
+            ~/Library/Keychains/login.keychain-db 2>/dev/null || true
+
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k "" \
+            /Users/builder/Library/codemagic-cli-tools/keychains/*.keychain-db 2>/dev/null || true
+
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          echo $CM_PROVISIONING_PROFILE | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/4250a012-2d5e-4164-a0d9-3c6b59950937.mobileprovision"
-          echo $CM_PROVISIONING_PROFILE_PACKETTUNNEL | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/ba9b8b32-6949-4963-a3a3-f3e7c6a50d94.mobileprovision"
-          echo "Profiles installed:"
+
+          echo $CM_PROVISIONING_PROFILE | base64 --decode \
+            > "$HOME/Library/MobileDevice/Provisioning Profiles/4250a012-2d5e-4164-a0d9-3c6b59950937.mobileprovision"
+
+          echo $CM_PROVISIONING_PROFILE_PACKETTUNNEL | base64 --decode \
+            > "$HOME/Library/MobileDevice/Provisioning Profiles/ba9b8b32-6949-4963-a3a3-f3e7c6a50d94.mobileprovision"
+
+          echo "✅ Profiles installed:"
           ls "$HOME/Library/MobileDevice/Provisioning Profiles/"
 
+      # ─────────────────────────────────────────────
+      # 7. Export options plist
+      # ─────────────────────────────────────────────
       - name: Create export options
         script: |
           cat > /tmp/export_options.plist << 'EXPORTOPTIONS'
@@ -341,27 +381,73 @@ workflows:
           </plist>
           EXPORTOPTIONS
 
+      # ─────────────────────────────────────────────
+      # 8. Build IPA  (resolve → patch → archive → export)
+      # ─────────────────────────────────────────────
       - name: Build iOS IPA
         script: |
+          set -e  # exit on any error immediately
+
+          DERIVED_DATA="build/DerivedData"
+
+          # ── 8a. Resolve SPM packages so WireGuardKitC.h is on disk ──────
+          echo "▶ Resolving SPM packages..."
+          xcodebuild \
+            -workspace ios/Nerox.xcworkspace \
+            -scheme Nerox \
+            -resolvePackageDependencies \
+            -derivedDataPath "$DERIVED_DATA"
+
+          # ── 8b. Patch WireGuardKitC.h for Xcode 26 ──────────────────────
+          echo "▶ Patching WireGuardKitC.h..."
+          WG_HEADER=$(find "$DERIVED_DATA" -name "WireGuardKitC.h" 2>/dev/null | head -1)
+
+          if [ -z "$WG_HEADER" ]; then
+            echo "❌ WireGuardKitC.h not found after package resolve!"
+            exit 1
+          fi
+
+          echo "Found: $WG_HEADER"
+
+          if grep -q "sys/types.h" "$WG_HEADER"; then
+            echo "Already patched — skipping"
+          else
+            sed -i '' '1s/^/#include <sys\/types.h>\n/' "$WG_HEADER"
+            echo "✅ Patched successfully"
+          fi
+
+          # ── 8c. Archive ──────────────────────────────────────────────────
+          echo "▶ Archiving..."
           xcodebuild \
             -workspace ios/Nerox.xcworkspace \
             -scheme Nerox \
             -configuration Release \
             -archivePath build/Nerox.xcarchive \
+            -derivedDataPath "$DERIVED_DATA" \
             archive \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=6ZN7399P3U \
             CODE_SIGN_IDENTITY="iPhone Distribution" \
             COMPILER_INDEX_STORE_ENABLE=NO
-          echo "Main app signed entitlements:"
-          codesign -d --entitlements :- build/Nerox.xcarchive/Products/Applications/Nerox.app 2>/dev/null || true
-          echo "PacketTunnel signed entitlements:"
-          codesign -d --entitlements :- build/Nerox.xcarchive/Products/Applications/Nerox.app/PlugIns/PacketTunnel.appex 2>/dev/null || true
+
+          # ── 8d. Verify entitlements ──────────────────────────────────────
+          echo "▶ Main app entitlements:"
+          codesign -d --entitlements :- \
+            build/Nerox.xcarchive/Products/Applications/Nerox.app 2>/dev/null || true
+
+          echo "▶ PacketTunnel entitlements:"
+          codesign -d --entitlements :- \
+            build/Nerox.xcarchive/Products/Applications/Nerox.app/PlugIns/PacketTunnel.appex 2>/dev/null || true
+
+          # ── 8e. Export IPA ───────────────────────────────────────────────
+          echo "▶ Exporting IPA..."
           xcodebuild \
             -exportArchive \
             -archivePath build/Nerox.xcarchive \
             -exportOptionsPlist /tmp/export_options.plist \
             -exportPath build/ios/ipa
+
+          echo "✅ Build complete!"
 
     artifacts:
       - build/ios/ipa/*.ipa

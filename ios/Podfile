@@ -38,5 +38,6 @@ end
 
 # ✅ Yeh add karo — PacketTunnel extension ka apna target
 target 'PacketTunnel' do
+  platform :ios, '15.0'  # ✅ yeh add karo
   pod 'WireGuardKit'
 end

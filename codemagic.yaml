@@ -183,12 +183,12 @@ workflows:
           def add_wireguard_spm(project, target)
             # Check if package already added
             existing_pkg = project.root_object.package_references&.find do |ref|
-              ref.respond_to?(:repository_url) && ref.repository_url == WIREGUARD_URL
+              ref.respond_to?(:repositoryURL) && ref.repositoryURL == repositoryURL
             end
 
             unless existing_pkg
               existing_pkg = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
-              existing_pkg.repository_url = WIREGUARD_URL
+              existing_pkg.repositoryURL = WIREGUARD_URL
               existing_pkg.requirement = { 'kind' => 'exactVersion', 'version' => WIREGUARD_VERSION }
               project.root_object.package_references ||= []
               project.root_object.package_references << existing_pkg

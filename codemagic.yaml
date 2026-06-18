@@ -14,15 +14,9 @@ workflows:
 
     scripts:
 
-      # ─────────────────────────────────────────────
-      # 1. Install JS dependencies
-      # ─────────────────────────────────────────────
       - name: Install dependencies
         script: npm install
 
-      # ─────────────────────────────────────────────
-      # 2. Bump build number from TestFlight
-      # ─────────────────────────────────────────────
       - name: Increment build number
         script: |
           cd ios
@@ -30,15 +24,11 @@ workflows:
           NEXT=$((BUILD_NUMBER + 1))
           agvtool new-version -all $NEXT
 
-      # ─────────────────────────────────────────────
-      # 3. Create PacketTunnel files + configure Xcode project
-      # ─────────────────────────────────────────────
       - name: Setup PacketTunnel Target
         script: |
           cd ios
           mkdir -p PacketTunnel
 
-          # ── Entitlements ──
           cat > PacketTunnel/PacketTunnel.entitlements << 'ENTITLEMENTS'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -56,7 +46,6 @@ workflows:
           </plist>
           ENTITLEMENTS
 
-          # ── Info.plist ──
           cat > PacketTunnel/Info.plist << 'INFOPLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -87,7 +76,7 @@ workflows:
           </plist>
           INFOPLIST
 
-          # ── Swift source with manual wg‑quick parser ──
+          # ── Swift source (parser + provider) ──
           cat > PacketTunnel/PacketTunnelProvider.swift << 'SWIFTFILE'
           import Foundation
           import NetworkExtension
@@ -112,9 +101,7 @@ workflows:
                           let section = String(trimmed.dropFirst().dropLast())
                           currentSection = section
                           if section == "Peer" {
-                              if let peer = currentPeer {
-                                  peers.append(peer)
-                              }
+                              if let peer = currentPeer { peers.append(peer) }
                               currentPeer = PeerConfiguration(publicKey: dummyPublicKey)
                           } else if section == "Interface" {
                               interface = InterfaceConfiguration(privateKey: dummyPrivateKey)
@@ -128,19 +115,11 @@ workflows:
                       case "Interface":
                           switch key {
                           case "PrivateKey":
-                              if let privateKey = PrivateKey(base64Key: value) {
-                                  interface.privateKey = privateKey
-                              }
+                              if let pk = PrivateKey(base64Key: value) { interface.privateKey = pk }
                           case "Address":
-                              let addresses = value.split(separator: ",").compactMap {
-                                  IPAddressRange(from: String($0))
-                              }
-                              interface.addresses = addresses
+                              interface.addresses = value.split(separator: ",").compactMap { IPAddressRange(from: String($0)) }
                           case "DNS":
-                              let dnsServers = value.split(separator: ",").compactMap {
-                                  DNSServer(from: String($0))
-                              }
-                              interface.dns = dnsServers
+                              interface.dns = value.split(separator: ",").compactMap { DNSServer(from: String($0)) }
                           case "MTU":
                               if let mtu = UInt16(value) { interface.mtu = mtu }
                           case "ListenPort":
@@ -152,26 +131,15 @@ workflows:
                           guard var peer = currentPeer else { continue }
                           switch key {
                           case "PublicKey":
-                              if let publicKey = PublicKey(base64Key: value) {
-                                  peer.publicKey = publicKey
-                              }
+                              if let pk = PublicKey(base64Key: value) { peer.publicKey = pk }
                           case "PresharedKey":
-                              if let preSharedKey = PreSharedKey(base64Key: value) {
-                                  peer.preSharedKey = preSharedKey
-                              }
+                              if let psk = PreSharedKey(base64Key: value) { peer.preSharedKey = psk }
                           case "AllowedIPs":
-                              let allowed = value.split(separator: ",").compactMap {
-                                  IPAddressRange(from: String($0))
-                              }
-                              peer.allowedIPs = allowed
+                              peer.allowedIPs = value.split(separator: ",").compactMap { IPAddressRange(from: String($0)) }
                           case "Endpoint":
-                              if let endpoint = Endpoint(from: value) {
-                                  peer.endpoint = endpoint
-                              }
+                              if let ep = Endpoint(from: value) { peer.endpoint = ep }
                           case "PersistentKeepalive":
-                              if let interval = UInt16(value) {
-                                  peer.persistentKeepAlive = interval
-                              }
+                              if let ka = UInt16(value) { peer.persistentKeepAlive = ka }
                           default: break
                           }
                           currentPeer = peer
@@ -180,15 +148,12 @@ workflows:
                       }
                   }
 
-                  if let peer = currentPeer {
-                      peers.append(peer)
-                  }
+                  if let peer = currentPeer { peers.append(peer) }
 
                   guard interface.privateKey != dummyPrivateKey else {
                       throw NSError(domain: "WireGuard", code: -1,
                                     userInfo: [NSLocalizedDescriptionKey: "Missing PrivateKey in [Interface]"])
                   }
-
                   return TunnelConfiguration(name: name, interface: interface, peers: peers)
               }
 
@@ -205,10 +170,7 @@ workflows:
                   NSLog("[WireGuard] \(message)")
               }
 
-              override func startTunnel(
-                  options: [String: NSObject]?,
-                  completionHandler: @escaping (Error?) -> Void
-              ) {
+              override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
                   guard
                       let proto = protocolConfiguration as? NETunnelProviderProtocol,
                       let cfg = proto.providerConfiguration,
@@ -218,9 +180,7 @@ workflows:
                       completionHandler(VPNError.missingConfig)
                       return
                   }
-
                   let tunnelName = (cfg["tunnelName"] as? String) ?? "nerox"
-
                   let tunnelConfig: TunnelConfiguration
                   do {
                       tunnelConfig = try TunnelConfiguration.fromWgQuickConfig(wgCfg, called: tunnelName)
@@ -228,57 +188,34 @@ workflows:
                       completionHandler(error)
                       return
                   }
-
-                  adapter.start(tunnelConfiguration: tunnelConfig) { adapterError in
-                      if let adapterError = adapterError {
-                          NSLog("[WireGuard] start error: \(adapterError)")
-                          completionHandler(adapterError)
+                  adapter.start(tunnelConfiguration: tunnelConfig) { error in
+                      if let error = error {
+                          NSLog("[WireGuard] start error: \(error)")
+                          completionHandler(error)
                       } else {
                           completionHandler(nil)
                       }
                   }
               }
 
-              override func stopTunnel(
-                  with reason: NEProviderStopReason,
-                  completionHandler: @escaping () -> Void
-              ) {
+              override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
                   adapter.stop { _ in completionHandler() }
               }
 
-              override func handleAppMessage(
-                  _ messageData: Data,
-                  completionHandler: ((Data?) -> Void)?
-              ) {
-                  guard
-                      let msg = String(data: messageData, encoding: .utf8),
-                      msg == "getTransferredByteCount"
-                  else {
+              override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
+                  guard let msg = String(data: messageData, encoding: .utf8), msg == "getTransferredByteCount" else {
                       completionHandler?(nil)
                       return
                   }
-
                   adapter.getRuntimeConfiguration { cfgString in
-                      guard let cfgString = cfgString else {
-                          completionHandler?(nil)
-                          return
-                      }
-
-                      var rx: UInt64 = 0
-                      var tx: UInt64 = 0
-
+                      guard let cfgString = cfgString else { completionHandler?(nil); return }
+                      var rx: UInt64 = 0, tx: UInt64 = 0
                       for line in cfgString.split(separator: "\n") {
                           let t = line.trimmingCharacters(in: .whitespaces)
-                          if t.hasPrefix("rx_bytes=") {
-                              rx += UInt64(t.dropFirst("rx_bytes=".count)) ?? 0
-                          } else if t.hasPrefix("tx_bytes=") {
-                              tx += UInt64(t.dropFirst("tx_bytes=".count)) ?? 0
-                          }
+                          if t.hasPrefix("rx_bytes=") { rx += UInt64(t.dropFirst("rx_bytes=".count)) ?? 0 }
+                          else if t.hasPrefix("tx_bytes=") { tx += UInt64(t.dropFirst("tx_bytes=".count)) ?? 0 }
                       }
-
-                      let data = try? JSONSerialization.data(
-                          withJSONObject: ["totalReceived": rx, "totalSent": tx]
-                      )
+                      let data = try? JSONSerialization.data(withJSONObject: ["totalReceived": rx, "totalSent": tx])
                       completionHandler?(data)
                   }
               }
@@ -286,13 +223,11 @@ workflows:
 
           enum VPNError: LocalizedError {
               case missingConfig
-              var errorDescription: String? {
-                  "Missing wgQuickConfig in providerConfiguration"
-              }
+              var errorDescription: String? { "Missing wgQuickConfig in providerConfiguration" }
           }
           SWIFTFILE
 
-          # ── xcodeproj gem + Ruby script ──
+          # ── Ruby script to configure Xcode project ──
           gem install xcodeproj --quiet
 
           ruby << 'RUBYSCRIPT'
@@ -330,11 +265,7 @@ workflows:
               c.build_settings['INFOPLIST_FILE']                 = 'PacketTunnel/Info.plist'
               c.build_settings['PROVISIONING_PROFILE']           = PKT_PROFILE
               c.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = PKT_PROFILE
-
-              # 🔧 Force linker to find libwg-go.a
-              c.build_settings['OTHER_LDFLAGS'] = '$(inherited) -lwg-go'
-              c.build_settings['LIBRARY_SEARCH_PATHS'] = '$(inherited) "$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)" "$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/PackageFrameworks"'
-              c.build_settings['FRAMEWORK_SEARCH_PATHS'] = '$(inherited) "$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/PackageFrameworks"'
+              # ❗ No manual linker flags – SPM will link libwg-go automatically
             end
           end
 
@@ -426,23 +357,15 @@ workflows:
           puts 'Done — project saved'
           RUBYSCRIPT
 
-      # ─────────────────────────────────────────────
-      # 4. Install CocoaPods
-      # ─────────────────────────────────────────────
       - name: Install pods
         script: |
           cd ios
           NO_FLIPPER=1 pod install
 
-      # ─────────────────────────────────────────────
-      # 5. Code signing setup
-      # ─────────────────────────────────────────────
       - name: Set up code signing
         script: |
           keychain initialize
-
           echo $CM_CERTIFICATE | base64 --decode > /tmp/certificate.p12
-
           security import /tmp/certificate.p12 \
             -k ~/Library/Keychains/login.keychain-db \
             -P "$CM_CERTIFICATE_PASSWORD" \
@@ -472,9 +395,6 @@ workflows:
           echo "Profiles installed:"
           ls "$HOME/Library/MobileDevice/Provisioning Profiles/"
 
-      # ─────────────────────────────────────────────
-      # 6. Export options plist
-      # ─────────────────────────────────────────────
       - name: Create export options
         script: |
           cat > /tmp/export_options.plist << 'EXPORTOPTIONS'
@@ -499,16 +419,11 @@ workflows:
           </plist>
           EXPORTOPTIONS
 
-      # ─────────────────────────────────────────────
-      # 7. Build IPA  (resolve → patch → archive → export)
-      # ─────────────────────────────────────────────
       - name: Build iOS IPA
         script: |
           set -e
-
           DERIVED_DATA="build/DerivedData"
 
-          # ── 7a. Resolve SPM packages ──────────────────────────────────────
           echo "Resolving SPM packages..."
           xcodebuild \
             -workspace ios/Nerox.xcworkspace \
@@ -516,26 +431,20 @@ workflows:
             -resolvePackageDependencies \
             -derivedDataPath "$DERIVED_DATA"
 
-          # ── 7b. Patch WireGuardKitC.h for Xcode 26 ───────────────────────
-          echo "Patching WireGuardKitC.h for Xcode 26..."
+          echo "Patching WireGuardKitC.h..."
           WG_HEADER=$(find "$DERIVED_DATA" -name "WireGuardKitC.h" 2>/dev/null | head -1)
-
           if [ -z "$WG_HEADER" ]; then
-            echo "ERROR: WireGuardKitC.h not found after package resolve!"
-            find "$DERIVED_DATA" -name "*.h" 2>/dev/null | grep -i wireguard || true
+            echo "ERROR: WireGuardKitC.h not found!"
             exit 1
           fi
-
           echo "Found header: $WG_HEADER"
-          if grep -q "sys/types.h" "$WG_HEADER"; then
-            echo "Already patched — skipping"
-          else
+          if ! grep -q "sys/types.h" "$WG_HEADER"; then
             sed -i '' '1s/^/#include <sys\/types.h>\n/' "$WG_HEADER"
             echo "Patched successfully"
-            head -3 "$WG_HEADER"
+          else
+            echo "Already patched"
           fi
 
-          # ── 7c. Archive ───────────────────────────────────────────────────
           echo "Archiving..."
           xcodebuild \
             -workspace ios/Nerox.xcworkspace \
@@ -549,16 +458,12 @@ workflows:
             CODE_SIGN_IDENTITY="iPhone Distribution" \
             COMPILER_INDEX_STORE_ENABLE=NO
 
-          # ── 7d. Verify entitlements ───────────────────────────────────────
-          echo "Main app entitlements:"
+          echo "Verifying entitlements..."
           codesign -d --entitlements :- \
             build/Nerox.xcarchive/Products/Applications/Nerox.app 2>/dev/null || true
-
-          echo "PacketTunnel entitlements:"
           codesign -d --entitlements :- \
             build/Nerox.xcarchive/Products/Applications/Nerox.app/PlugIns/PacketTunnel.appex 2>/dev/null || true
 
-          # ── 7e. Export IPA ────────────────────────────────────────────────
           echo "Exporting IPA..."
           xcodebuild \
             -exportArchive \

@@ -29,6 +29,7 @@ workflows:
           cd ios
           mkdir -p PacketTunnel
 
+          # ── Entitlements ──
           cat > PacketTunnel/PacketTunnel.entitlements << 'ENTITLEMENTS'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -46,6 +47,7 @@ workflows:
           </plist>
           ENTITLEMENTS
 
+          # ── Info.plist ──
           cat > PacketTunnel/Info.plist << 'INFOPLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -76,7 +78,7 @@ workflows:
           </plist>
           INFOPLIST
 
-          # ── Swift source (parser + provider) ──
+          # ── Swift source ──
           cat > PacketTunnel/PacketTunnelProvider.swift << 'SWIFTFILE'
           import Foundation
           import NetworkExtension
@@ -238,8 +240,6 @@ workflows:
           PKT_BUNDLE_ID  = "#{MAIN_BUNDLE_ID}.PacketTunnel"
           MAIN_PROFILE   = '4250a012-2d5e-4164-a0d9-3c6b59950937'
           PKT_PROFILE    = 'ba9b8b32-6949-4963-a3a3-f3e7c6a50d94'
-          WG_URL         = 'https://git.zx2c4.com/wireguard-apple'
-          WG_VERSION     = '1.0.15-26'
 
           def configure_main(target)
             target.build_configurations.each do |c|
@@ -265,29 +265,6 @@ workflows:
               c.build_settings['INFOPLIST_FILE']                 = 'PacketTunnel/Info.plist'
               c.build_settings['PROVISIONING_PROFILE']           = PKT_PROFILE
               c.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = PKT_PROFILE
-              # ❗ No manual linker flags – SPM will link libwg-go automatically
-            end
-          end
-
-          def add_wireguard_spm(project, target)
-            pkg = project.root_object.package_references&.find do |r|
-              r.respond_to?(:repositoryURL) && r.repositoryURL == WG_URL
-            end
-            unless pkg
-              pkg = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
-              pkg.repositoryURL = WG_URL
-              pkg.requirement   = { 'kind' => 'exactVersion', 'version' => WG_VERSION }
-              project.root_object.package_references ||= []
-              project.root_object.package_references << pkg
-              puts 'WireGuardKit SPM reference added'
-            end
-            already = target.package_product_dependencies&.any? { |d| d.product_name == 'WireGuardKit' }
-            unless already
-              dep = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
-              dep.package      = pkg
-              dep.product_name = 'WireGuardKit'
-              target.package_product_dependencies << dep
-              puts 'WireGuardKit linked to PacketTunnel'
             end
           end
 
@@ -351,17 +328,54 @@ workflows:
           end
 
           configure_packet(pkt_target)
-          add_wireguard_spm(project, pkt_target)
           embed_extension(project, main_target, pkt_target)
           project.save
           puts 'Done — project saved'
           RUBYSCRIPT
 
-      - name: Install pods
+      # ─────────────────────────────────────────────────────────────
+      # 4. Update Podfile to include WireGuardKit for PacketTunnel
+      # ─────────────────────────────────────────────────────────────
+      - name: Update Podfile
+        script: |
+          cd ios
+          # Backup original Podfile
+          cp Podfile Podfile.bak
+          # Add PacketTunnel target with WireGuardKit if not already there
+          if ! grep -q "target 'PacketTunnel'" Podfile; then
+            cat >> Podfile << 'PODFILE_ADD'
+          target 'PacketTunnel' do
+            platform :ios, '15.0'
+            pod 'WireGuardKit'
+          end
+          PODFILE_ADD
+          fi
+
+      # ─────────────────────────────────────────────────────────────
+      # 5. Install pods and patch WireGuardKit header
+      # ─────────────────────────────────────────────────────────────
+      - name: Install pods and patch
         script: |
           cd ios
           NO_FLIPPER=1 pod install
 
+          # Patch the WireGuardKitC.h header to include sys/types.h
+          WG_HEADER=$(find Pods/WireGuardKit/Sources/WireGuardKitC -name "WireGuardKitC.h" 2>/dev/null | head -1)
+          if [ -n "$WG_HEADER" ]; then
+            echo "Patching $WG_HEADER"
+            if ! grep -q "sys/types.h" "$WG_HEADER"; then
+              sed -i '' '1s/^/#include <sys\/types.h>\n/' "$WG_HEADER"
+              echo "✅ Patched successfully"
+            else
+              echo "Already patched"
+            fi
+          else
+            echo "⚠️ WireGuardKitC.h not found – patching skipped"
+          fi
+
+      # ─────────────────────────────────────────────────────────────
+      # 6. Code signing setup
+      # ─────────────────────────────────────────────────────────────
       - name: Set up code signing
         script: |
           keychain initialize
@@ -395,6 +409,9 @@ workflows:
           echo "Profiles installed:"
           ls "$HOME/Library/MobileDevice/Provisioning Profiles/"
 
+      # ─────────────────────────────────────────────────────────────
+      # 7. Export options plist
+      # ─────────────────────────────────────────────────────────────
       - name: Create export options
         script: |
           cat > /tmp/export_options.plist << 'EXPORTOPTIONS'
@@ -419,31 +436,13 @@ workflows:
           </plist>
           EXPORTOPTIONS
 
+      # ─────────────────────────────────────────────────────────────
+      # 8. Build IPA
+      # ─────────────────────────────────────────────────────────────
       - name: Build iOS IPA
         script: |
           set -e
           DERIVED_DATA="build/DerivedData"
-
-          echo "Resolving SPM packages..."
-          xcodebuild \
-            -workspace ios/Nerox.xcworkspace \
-            -scheme Nerox \
-            -resolvePackageDependencies \
-            -derivedDataPath "$DERIVED_DATA"
-
-          echo "Patching WireGuardKitC.h..."
-          WG_HEADER=$(find "$DERIVED_DATA" -name "WireGuardKitC.h" 2>/dev/null | head -1)
-          if [ -z "$WG_HEADER" ]; then
-            echo "ERROR: WireGuardKitC.h not found!"
-            exit 1
-          fi
-          echo "Found header: $WG_HEADER"
-          if ! grep -q "sys/types.h" "$WG_HEADER"; then
-            sed -i '' '1s/^/#include <sys\/types.h>\n/' "$WG_HEADER"
-            echo "Patched successfully"
-          else
-            echo "Already patched"
-          fi
 
           echo "Archiving..."
           xcodebuild \
@@ -451,7 +450,6 @@ workflows:
             -scheme Nerox \
             -configuration Release \
             -archivePath build/Nerox.xcarchive \
-            -derivedDataPath "$DERIVED_DATA" \
             archive \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=6ZN7399P3U \

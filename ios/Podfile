@@ -41,4 +41,5 @@ end
 # PacketTunnel — WireGuardKit SPM se aayega, pod nahi
 target 'PacketTunnel' do
   platform :ios, '15.0'
+  pod 'WireGuardKit'
 end

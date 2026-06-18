@@ -87,7 +87,7 @@ workflows:
           </plist>
           INFOPLIST
 
-          # ── Swift source – final corrected version ──
+          # ── Swift source with manual wg‑quick parser ──
           cat > PacketTunnel/PacketTunnelProvider.swift << 'SWIFTFILE'
           import Foundation
           import NetworkExtension
@@ -330,9 +330,11 @@ workflows:
               c.build_settings['INFOPLIST_FILE']                 = 'PacketTunnel/Info.plist'
               c.build_settings['PROVISIONING_PROFILE']           = PKT_PROFILE
               c.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = PKT_PROFILE
-              # ── Link wg-go static library ──
-              c.build_settings['OTHER_LDFLAGS']                  = '$(inherited) -lwg-go'
-              c.build_settings['LIBRARY_SEARCH_PATHS']           = '$(inherited) "$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/PackageFrameworks"'
+
+              # 🔧 Force linker to find libwg-go.a
+              c.build_settings['OTHER_LDFLAGS'] = '$(inherited) -lwg-go'
+              c.build_settings['LIBRARY_SEARCH_PATHS'] = '$(inherited) "$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)" "$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/PackageFrameworks"'
+              c.build_settings['FRAMEWORK_SEARCH_PATHS'] = '$(inherited) "$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/PackageFrameworks"'
             end
           end
 

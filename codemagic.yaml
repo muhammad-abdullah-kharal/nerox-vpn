@@ -45,8 +45,8 @@ workflows:
 
             @objc(start:resolver:rejecter:)
             func start(_ config: String,
-                       resolver resolve: @escaping RCTPromiseResolveBlock,
-                       rejecter reject: @escaping RCTPromiseRejectBlock) {
+             resolver resolve: @escaping (Any?) -> Void,
+             rejecter reject: @escaping (String?, String?, Error?) -> Void) {
 
               guard !config.isEmpty else {
                 reject("WG_CONFIG_EMPTY", "WireGuard config is empty", nil)
@@ -96,8 +96,8 @@ workflows:
             }
 
             @objc(stop:rejecter:)
-            func stop(_ resolve: @escaping RCTPromiseResolveBlock,
-                      rejecter reject: @escaping RCTPromiseRejectBlock) {
+            func stop(_ resolve: @escaping (Any?) -> Void,
+            rejecter reject: @escaping (String?, String?, Error?) -> Void) {
               NETunnelProviderManager.loadAllFromPreferences { managers, _ in
                 managers?.first?.connection.stopVPNTunnel()
                 resolve(true)
@@ -105,8 +105,8 @@ workflows:
             }
 
             @objc(getStatus:rejecter:)
-            func getStatus(_ resolve: @escaping RCTPromiseResolveBlock,
-                           rejecter reject: @escaping RCTPromiseRejectBlock) {
+            func getStatus(_ resolve: @escaping (Any?) -> Void,
+                 rejecter reject: @escaping (String?, String?, Error?) -> Void) {
               NETunnelProviderManager.loadAllFromPreferences { managers, _ in
                 guard let mgr = managers?.first else { resolve("DISCONNECTED"); return }
                 switch mgr.connection.status {
@@ -119,8 +119,8 @@ workflows:
             }
 
             @objc(getStatistics:rejecter:)
-            func getStatistics(_ resolve: @escaping RCTPromiseResolveBlock,
-                               rejecter reject: @escaping RCTPromiseRejectBlock) {
+            func getStatistics(_ resolve: @escaping (Any?) -> Void,
+                      rejecter reject: @escaping (String?, String?, Error?) -> Void) {
               NETunnelProviderManager.loadAllFromPreferences { managers, _ in
                 guard let session = managers?.first?.connection as? NETunnelProviderSession else {
                   resolve(["totalReceived": 0, "totalSent": 0]); return

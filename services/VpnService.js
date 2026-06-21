@@ -483,11 +483,22 @@ class VpnService {
 
     console.log(`[NativeTunnel] Starting real WireGuard tunnel for IP: ${ip}`);
     if (splitTunneling && splitTunneling.allowedApps) {
-      console.log(`[NativeTunnel] Split tunneling config received for ${splitTunneling.allowedApps.length} apps`);
+      console.log(`[NativeTunnel] Split tunneling config for ${splitTunneling.allowedApps.length} apps`);
     }
 
-    return await WireGuardTunnel.start(config);
-  }
+    try {
+      return await WireGuardTunnel.start(config);
+    } catch (err) {
+      // iOS: user ne VPN permission "Don't Allow" kiya
+      const code = err?.code || '';
+      if (code === 'WG_SAVE_FAILED' || String(err?.message || '').toLowerCase().includes('permission')) {
+        const permErr = new Error('VPN permission was denied. Please allow VPN configuration to connect.');
+        permErr.noRetry = true;
+        throw permErr;
+      }
+      throw err;
+    }
+}
 
   async stopNativeTunnel() {
     const { WireGuardTunnel } = NativeModules;

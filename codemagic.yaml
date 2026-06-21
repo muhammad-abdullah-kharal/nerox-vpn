@@ -24,12 +24,157 @@ workflows:
           NEXT=$((BUILD_NUMBER + 1))
           agvtool new-version -all $NEXT
 
+      # ─────────────────────────────────────────────────────────────
+      # Create Native Module Bridge files (WireGuardTunnel) in MAIN app
+      # ─────────────────────────────────────────────────────────────
+      - name: Create WireGuardTunnel Native Module
+        script: |
+          cd ios
+
+          # ── WireGuardTunnel.swift (Native Module - runs in MAIN app) ──
+          cat > WireGuardTunnel.swift << 'WGSWIFT'
+          import Foundation
+          import NetworkExtension
+
+          @objc(WireGuardTunnel)
+          class WireGuardTunnel: NSObject {
+
+            static func requiresMainQueueSetup() -> Bool { return false }
+
+            private let providerBundleId = "org.reactjs.native.example.Nerox.PacketTunnel"
+
+            @objc(start:resolver:rejecter:)
+            func start(_ config: String,
+                       resolver resolve: @escaping RCTPromiseResolveBlock,
+                       rejecter reject: @escaping RCTPromiseRejectBlock) {
+
+              guard !config.isEmpty else {
+                reject("WG_CONFIG_EMPTY", "WireGuard config is empty", nil)
+                return
+              }
+
+              NETunnelProviderManager.loadAllFromPreferences { managers, error in
+                if let error = error {
+                  reject("WG_LOAD_FAILED", error.localizedDescription, error)
+                  return
+                }
+
+                let mgr = managers?.first ?? NETunnelProviderManager()
+
+                let proto = NETunnelProviderProtocol()
+                proto.providerBundleIdentifier = self.providerBundleId
+                proto.serverAddress = "Nerox VPN"
+                proto.providerConfiguration = [
+                  "wgQuickConfig": config,
+                  "tunnelName": "nerox"
+                ]
+
+                mgr.protocolConfiguration = proto
+                mgr.localizedDescription = "Nerox VPN"
+                mgr.isEnabled = true
+
+                // saveToPreferences => yahi pehli baar VPN permission popup laata hai
+                mgr.saveToPreferences { saveError in
+                  if let saveError = saveError {
+                    reject("WG_SAVE_FAILED", saveError.localizedDescription, saveError)
+                    return
+                  }
+                  mgr.loadFromPreferences { loadError in
+                    if let loadError = loadError {
+                      reject("WG_RELOAD_FAILED", loadError.localizedDescription, loadError)
+                      return
+                    }
+                    do {
+                      try mgr.connection.startVPNTunnel()
+                      resolve("STARTED")
+                    } catch {
+                      reject("WG_START_FAILED", error.localizedDescription, error)
+                    }
+                  }
+                }
+              }
+            }
+
+            @objc(stop:rejecter:)
+            func stop(_ resolve: @escaping RCTPromiseResolveBlock,
+                      rejecter reject: @escaping RCTPromiseRejectBlock) {
+              NETunnelProviderManager.loadAllFromPreferences { managers, _ in
+                managers?.first?.connection.stopVPNTunnel()
+                resolve(true)
+              }
+            }
+
+            @objc(getStatus:rejecter:)
+            func getStatus(_ resolve: @escaping RCTPromiseResolveBlock,
+                           rejecter reject: @escaping RCTPromiseRejectBlock) {
+              NETunnelProviderManager.loadAllFromPreferences { managers, _ in
+                guard let mgr = managers?.first else { resolve("DISCONNECTED"); return }
+                switch mgr.connection.status {
+                case .connected:   resolve("CONNECTED")
+                case .connecting:  resolve("CONNECTING")
+                case .reasserting: resolve("CONNECTING")
+                default:           resolve("DISCONNECTED")
+                }
+              }
+            }
+
+            @objc(getStatistics:rejecter:)
+            func getStatistics(_ resolve: @escaping RCTPromiseResolveBlock,
+                               rejecter reject: @escaping RCTPromiseRejectBlock) {
+              NETunnelProviderManager.loadAllFromPreferences { managers, _ in
+                guard let session = managers?.first?.connection as? NETunnelProviderSession else {
+                  resolve(["totalReceived": 0, "totalSent": 0]); return
+                }
+                guard let msg = "getTransferredByteCount".data(using: .utf8) else {
+                  resolve(["totalReceived": 0, "totalSent": 0]); return
+                }
+                do {
+                  try session.sendProviderMessage(msg) { data in
+                    if let data = data,
+                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                      resolve(json)
+                    } else {
+                      resolve(["totalReceived": 0, "totalSent": 0])
+                    }
+                  }
+                } catch {
+                  resolve(["totalReceived": 0, "totalSent": 0])
+                }
+              }
+            }
+          }
+          WGSWIFT
+
+          # ── WireGuardTunnel.m (Objective-C bridge for React Native) ──
+          cat > WireGuardTunnel.m << 'WGOBJC'
+          #import <React/RCTBridgeModule.h>
+
+          @interface RCT_EXTERN_MODULE(WireGuardTunnel, NSObject)
+
+          RCT_EXTERN_METHOD(start:(NSString *)config
+                            resolver:(RCTPromiseResolveBlock)resolve
+                            rejecter:(RCTPromiseRejectBlock)reject)
+
+          RCT_EXTERN_METHOD(stop:(RCTPromiseResolveBlock)resolve
+                            rejecter:(RCTPromiseRejectBlock)reject)
+
+          RCT_EXTERN_METHOD(getStatus:(RCTPromiseResolveBlock)resolve
+                            rejecter:(RCTPromiseRejectBlock)reject)
+
+          RCT_EXTERN_METHOD(getStatistics:(RCTPromiseResolveBlock)resolve
+                            rejecter:(RCTPromiseRejectBlock)reject)
+
+          @end
+          WGOBJC
+
+          echo "✅ WireGuardTunnel.swift and WireGuardTunnel.m created"
+
       - name: Setup PacketTunnel Target
         script: |
           cd ios
           mkdir -p PacketTunnel
 
-          # ── Entitlements ──
+          # ── Entitlements (PacketTunnel) ──
           cat > PacketTunnel/PacketTunnel.entitlements << 'ENTITLEMENTS'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -43,11 +188,38 @@ workflows:
               <array>
                   <string>allow-vpn</string>
               </array>
+              <key>com.apple.security.application-groups</key>
+              <array>
+                  <string>group.org.reactjs.native.example.Nerox</string>
+              </array>
           </dict>
           </plist>
           ENTITLEMENTS
 
-          # ── Info.plist ──
+          # ── Main app entitlements (Nerox) — IMPORTANT ──
+          mkdir -p Nerox
+          cat > Nerox/Nerox.entitlements << 'MAINENTITLEMENTS'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.developer.networking.networkextension</key>
+              <array>
+                  <string>packet-tunnel-provider</string>
+              </array>
+              <key>com.apple.developer.networking.vpn.api</key>
+              <array>
+                  <string>allow-vpn</string>
+              </array>
+              <key>com.apple.security.application-groups</key>
+              <array>
+                  <string>group.org.reactjs.native.example.Nerox</string>
+              </array>
+          </dict>
+          </plist>
+          MAINENTITLEMENTS
+
+          # ── Info.plist (PacketTunnel) ──
           cat > PacketTunnel/Info.plist << 'INFOPLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -78,7 +250,7 @@ workflows:
           </plist>
           INFOPLIST
 
-          # ── Swift source ──
+          # ── Swift source (PacketTunnel Provider) ──
           cat > PacketTunnel/PacketTunnelProvider.swift << 'SWIFTFILE'
           import Foundation
           import NetworkExtension
@@ -268,6 +440,25 @@ workflows:
             end
           end
 
+          # Add WireGuardTunnel native module files to MAIN target
+          def add_native_module(project, main_target)
+            ['WireGuardTunnel.swift', 'WireGuardTunnel.m'].each do |fname|
+              next unless File.exist?(fname)
+              # Avoid duplicates
+              existing = project.files.find { |f| f.path == fname || (f.path && f.path.end_with?(fname)) }
+              if existing
+                unless main_target.source_build_phase.files_references.include?(existing)
+                  main_target.source_build_phase.add_file_reference(existing)
+                end
+                puts "Native module #{fname} already referenced — ensured in target"
+              else
+                ref = project.main_group.new_file(fname)
+                main_target.source_build_phase.add_file_reference(ref)
+                puts "Added native module: #{fname}"
+              end
+            end
+          end
+
           def embed_extension(project, app_target, ext_target)
             phase = app_target.build_phases.find do |p|
               p.is_a?(Xcodeproj::Project::Object::PBXCopyFilesBuildPhase) &&
@@ -315,6 +506,7 @@ workflows:
 
           configure_main(main_target)
           remove_duplicate_fonts(project, main_target)
+          add_native_module(project, main_target)
 
           pkt_target = project.targets.find { |t| t.name == 'PacketTunnel' }
           if pkt_target
@@ -334,14 +526,12 @@ workflows:
           RUBYSCRIPT
 
       # ─────────────────────────────────────────────────────────────
-      # 4. Update Podfile to include WireGuardKit for PacketTunnel
+      # Update Podfile to include WireGuardKit for PacketTunnel
       # ─────────────────────────────────────────────────────────────
       - name: Update Podfile
         script: |
           cd ios
-          # Backup original Podfile
           cp Podfile Podfile.bak
-          # Add PacketTunnel target with WireGuardKit if not already there
           if ! grep -q "target 'PacketTunnel'" Podfile; then
             cat >> Podfile << 'PODFILE_ADD'
           target 'PacketTunnel' do
@@ -352,14 +542,13 @@ workflows:
           fi
 
       # ─────────────────────────────────────────────────────────────
-      # 5. Install pods and patch WireGuardKit header
+      # Install pods and patch WireGuardKit header
       # ─────────────────────────────────────────────────────────────
       - name: Install pods and patch
         script: |
           cd ios
           NO_FLIPPER=1 pod install
 
-          # Patch the WireGuardKitC.h header to include sys/types.h
           WG_HEADER=$(find Pods/WireGuardKit/Sources/WireGuardKitC -name "WireGuardKitC.h" 2>/dev/null | head -1)
           if [ -n "$WG_HEADER" ]; then
             echo "Patching $WG_HEADER"
@@ -374,7 +563,7 @@ workflows:
           fi
 
       # ─────────────────────────────────────────────────────────────
-      # 6. Code signing setup
+      # Code signing setup
       # ─────────────────────────────────────────────────────────────
       - name: Set up code signing
         script: |
@@ -410,7 +599,7 @@ workflows:
           ls "$HOME/Library/MobileDevice/Provisioning Profiles/"
 
       # ─────────────────────────────────────────────────────────────
-      # 7. Export options plist
+      # Export options plist
       # ─────────────────────────────────────────────────────────────
       - name: Create export options
         script: |
@@ -437,12 +626,11 @@ workflows:
           EXPORTOPTIONS
 
       # ─────────────────────────────────────────────────────────────
-      # 8. Build IPA
+      # Build IPA
       # ─────────────────────────────────────────────────────────────
       - name: Build iOS IPA
         script: |
           set -e
-          DERIVED_DATA="build/DerivedData"
 
           echo "Archiving..."
           xcodebuild \
@@ -456,9 +644,11 @@ workflows:
             CODE_SIGN_IDENTITY="iPhone Distribution" \
             COMPILER_INDEX_STORE_ENABLE=NO
 
-          echo "Verifying entitlements..."
+          echo "===== Verifying MAIN APP entitlements ====="
           codesign -d --entitlements :- \
             build/Nerox.xcarchive/Products/Applications/Nerox.app 2>/dev/null || true
+
+          echo "===== Verifying EXTENSION entitlements ====="
           codesign -d --entitlements :- \
             build/Nerox.xcarchive/Products/Applications/Nerox.app/PlugIns/PacketTunnel.appex 2>/dev/null || true
 

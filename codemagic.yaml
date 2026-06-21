@@ -188,10 +188,6 @@ workflows:
               <array>
                   <string>allow-vpn</string>
               </array>
-              <key>com.apple.security.application-groups</key>
-              <array>
-                  <string>group.org.reactjs.native.example.Nerox</string>
-              </array>
           </dict>
           </plist>
           ENTITLEMENTS
@@ -210,10 +206,6 @@ workflows:
               <key>com.apple.developer.networking.vpn.api</key>
               <array>
                   <string>allow-vpn</string>
-              </array>
-              <key>com.apple.security.application-groups</key>
-              <array>
-                  <string>group.org.reactjs.native.example.Nerox</string>
               </array>
           </dict>
           </plist>

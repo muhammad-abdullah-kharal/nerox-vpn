@@ -31,6 +31,12 @@ workflows:
         script: |
           cd ios
 
+          # ── Safety cleanup: remove any stray/duplicate copies of these
+          # files that may exist elsewhere in the repo (prevents duplicate
+          # symbol errors at link time) ──
+          find . -name "WireGuardTunnel.swift" -not -path "./WireGuardTunnel.swift" -delete 2>/dev/null || true
+          find . -name "WireGuardTunnel.m" -not -path "./WireGuardTunnel.m" -delete 2>/dev/null || true
+
           # ── WireGuardTunnel.swift (Native Module - runs in MAIN app) ──
           cat > WireGuardTunnel.swift << 'WGSWIFT'
           import Foundation
@@ -39,6 +45,7 @@ workflows:
           @objc(WireGuardTunnel)
           class WireGuardTunnel: NSObject {
 
+            @objc
             static func requiresMainQueueSetup() -> Bool { return false }
 
             private let providerBundleId = "org.reactjs.native.example.Nerox.PacketTunnel"
@@ -432,22 +439,38 @@ workflows:
             end
           end
 
-          # Add WireGuardTunnel native module files to MAIN target
+          # Add WireGuardTunnel native module files to MAIN target.
+          # Removes ANY stale reference first (from any group/target) to
+          # avoid duplicate symbol errors at link time, then adds exactly
+          # one clean reference.
           def add_native_module(project, main_target)
             ['WireGuardTunnel.swift', 'WireGuardTunnel.m'].each do |fname|
               next unless File.exist?(fname)
-              # Avoid duplicates
-              existing = project.files.find { |f| f.path == fname || (f.path && f.path.end_with?(fname)) }
-              if existing
-                unless main_target.source_build_phase.files_references.include?(existing)
-                  main_target.source_build_phase.add_file_reference(existing)
-                end
-                puts "Native module #{fname} already referenced — ensured in target"
-              else
-                ref = project.main_group.new_file(fname)
-                main_target.source_build_phase.add_file_reference(ref)
-                puts "Added native module: #{fname}"
+
+              # Find all stale references by path OR name
+              stale_refs = project.files.select do |f|
+                (f.path && File.basename(f.path) == fname) || f.name == fname
               end
+
+              # Remove from all build phases in all targets
+              stale_refs.each do |old_ref|
+                project.targets.each do |t|
+                  t.build_phases.each do |phase|
+                    next unless phase.respond_to?(:files)
+                    phase.files.dup.each do |bf|
+                      phase.remove_build_file(bf) if bf.file_ref == old_ref
+                    end
+                  end
+                end
+                # Remove the file reference from the project
+                old_ref.remove_from_project
+                puts "Removed stale reference: #{fname} (#{old_ref.uuid})"
+              end
+
+              # Add clean reference to main group and main target
+              ref = project.main_group.new_file(fname)
+              main_target.source_build_phase.add_file_reference(ref)
+              puts "Added native module (clean): #{fname}"
             end
           end
 

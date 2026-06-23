@@ -14,6 +14,7 @@ const router = (0, express_1.Router)();
 // Auth Routes
 router.post('/auth/register', AuthController_1.AuthController.register);
 router.post('/auth/login', AuthController_1.AuthController.login);
+router.post('/auth/social', AuthController_1.AuthController.socialLogin);
 router.post('/auth/send-otp', AuthController_1.AuthController.sendOtp);
 router.post('/auth/verify-otp', AuthController_1.AuthController.verifyOtp);
 router.post('/auth/reset-password', auth_1.authenticateToken, AuthController_1.AuthController.resetPassword);

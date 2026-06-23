@@ -21,6 +21,10 @@ RESEND_API_KEY=re_your_resend_api_key
 GOOGLE_SERVICE_ACCOUNT_JSON={}
 APPLE_SHARED_SECRET=your_apple_secret
 APP_URL=https://api.neroxvpn.com
+GOOGLE_WEB_CLIENT_ID=595221930597-pj8dta32veg34qvtnp4u9jjlt1b51aft.apps.googleusercontent.com
+GOOGLE_CLIENT_IDS=595221930597-pj8dta32veg34qvtnp4u9jjlt1b51aft.apps.googleusercontent.com
+APPLE_BUNDLE_ID=org.reactjs.native.example.Nerox
+APPLE_CLIENT_IDS=org.reactjs.native.example.Nerox
 
 # Email / SMTP Configuration (Resend)
 SMTP_HOST=smtp.resend.com

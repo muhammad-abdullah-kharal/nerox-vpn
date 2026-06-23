@@ -3,7 +3,6 @@ import {
   View,
   Text,
   ScrollView,
-  Dimensions,
   Image,
   StyleSheet,
   ImageBackground,
@@ -15,8 +14,8 @@ import {TextInput} from 'react-native-paper';
 import Entypo from 'react-native-vector-icons/Entypo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../services/api';
-
-const {width, height} = Dimensions.get('window');
+import SocialSignInButtons from '../components/SocialSignInButtons';
+import {signInWithApple, signInWithGoogle} from '../services/socialAuth';
 
 export default function CreateAccount({navigation}) {
   const [Email, setEmail] = React.useState('');
@@ -27,6 +26,7 @@ export default function CreateAccount({navigation}) {
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [errors, setErrors] = React.useState({});
   const [loading, setLoading] = React.useState(false);
+  const [socialLoading, setSocialLoading] = React.useState(null);
   const [ReferralCode, setReferralCode] = React.useState('');
 
   const validateEmail = email => {
@@ -72,7 +72,13 @@ export default function CreateAccount({navigation}) {
           Alert.alert(
             'Verification Required',
             'We have sent a verification code to your email. Please enter it to continue.',
-            [{text: 'OK', onPress: () => navigation.navigate('OtpVerification', { email: cleanEmail })}],
+            [
+              {
+                text: 'OK',
+                onPress: () =>
+                  navigation.navigate('OtpVerification', {email: cleanEmail}),
+              },
+            ],
           );
         } else if (res.token) {
           await AsyncStorage.setItem('auth_token', res.token);
@@ -97,6 +103,32 @@ export default function CreateAccount({navigation}) {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSocialSignIn = async provider => {
+    setSocialLoading(provider);
+    try {
+      const res =
+        provider === 'google'
+          ? await signInWithGoogle()
+          : await signInWithApple();
+
+      if (res?.cancelled) {
+        return;
+      }
+
+      if (res?.success && res.token) {
+        await api.setAuthToken(res.token);
+        navigation.replace('MainScreen');
+      }
+    } catch (err) {
+      Alert.alert(
+        'Sign Up Failed',
+        err.message || `Could not continue with ${provider}.`,
+      );
+    } finally {
+      setSocialLoading(null);
     }
   };
 
@@ -278,6 +310,12 @@ export default function CreateAccount({navigation}) {
                 </Text>
               </ImageBackground>
             </Pressable>
+
+            <SocialSignInButtons
+              loadingProvider={socialLoading}
+              onPressGoogle={() => handleSocialSignIn('google')}
+              onPressApple={() => handleSocialSignIn('apple')}
+            />
           </View>
 
           <View style={styles.footer}>

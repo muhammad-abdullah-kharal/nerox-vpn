@@ -14,6 +14,7 @@ const router = Router();
 // Auth Routes
 router.post('/auth/register', AuthController.register);
 router.post('/auth/login', AuthController.login);
+router.post('/auth/social', AuthController.socialLogin);
 router.post('/auth/send-otp', AuthController.sendOtp);
 router.post('/auth/verify-otp', AuthController.verifyOtp);
 router.post('/auth/reset-password', authenticateToken, AuthController.resetPassword);

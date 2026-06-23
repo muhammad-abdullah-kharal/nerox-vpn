@@ -26,6 +26,11 @@ const runMigrations = async () => {
         ALTER TABLE users ADD COLUMN IF NOT EXISTS kill_switch_enabled BOOLEAN DEFAULT FALSE;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS max_devices INTEGER DEFAULT 5;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS authorized_regions TEXT[] DEFAULT '{"Global"}';
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS apple_sub TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_provider VARCHAR(20);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_apple_sub ON users(apple_sub) WHERE apple_sub IS NOT NULL;
 
         ALTER TABLE vpn_servers ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT FALSE;
         ALTER TABLE vpn_servers ADD COLUMN IF NOT EXISTS is_streaming_optimized BOOLEAN DEFAULT FALSE;

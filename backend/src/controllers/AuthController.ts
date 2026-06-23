@@ -17,7 +17,7 @@ export class AuthController {
       }
 
       const result = await AuthService.register(email.toLowerCase().trim(), password, username.trim(), referralCode);
-      
+
       if (result.requireVerification) {
         return res.json({ success: true, requireVerification: true, email: result.email });
       }
@@ -51,7 +51,38 @@ export class AuthController {
       } else {
         res.json({ success: true, token: result.token });
       }
+    } catch (error: any) {
+      res.status(401).json({ error: error.message });
+    }
+  }
 
+  // POST /api/auth/social
+  static async socialLogin(req: Request, res: Response) {
+    try {
+      const { provider, idToken, identityToken, nonce, user, deviceInfo } = req.body;
+
+      if (provider !== 'google' && provider !== 'apple') {
+        return res.status(400).json({ error: 'Provider must be google or apple.' });
+      }
+
+      const token = provider === 'google' ? idToken : identityToken || idToken;
+      if (!token) {
+        return res.status(400).json({ error: 'Identity token is required.' });
+      }
+
+      const result = await AuthService.socialLogin(
+        provider,
+        token,
+        user,
+        nonce,
+        deviceInfo,
+      );
+
+      res.json({
+        success: true,
+        token: result.token,
+        isNewUser: result.isNewUser,
+      });
     } catch (error: any) {
       res.status(401).json({ error: error.message });
     }

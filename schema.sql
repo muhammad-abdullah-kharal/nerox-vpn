@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS public.users (
     valid_to TIMESTAMP WITH TIME ZONE,
     failed_attempts INTEGER DEFAULT 0,
     locked_until TIMESTAMP WITH TIME ZONE,
+    google_sub TEXT UNIQUE,
+    apple_sub TEXT UNIQUE,
+    last_login_provider VARCHAR(20),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

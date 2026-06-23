@@ -3,7 +3,6 @@ import {
   View,
   Text,
   ScrollView,
-  Dimensions,
   Image,
   StyleSheet,
   ImageBackground,
@@ -13,10 +12,9 @@ import {
 } from 'react-native';
 import {TextInput} from 'react-native-paper';
 import Entypo from 'react-native-vector-icons/Entypo';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../services/api';
-
-const {width, height} = Dimensions.get('window');
+import SocialSignInButtons from '../components/SocialSignInButtons';
+import {signInWithApple, signInWithGoogle} from '../services/socialAuth';
 
 export default function Login({navigation}) {
   const [Email, setEmail] = React.useState('');
@@ -24,6 +22,7 @@ export default function Login({navigation}) {
   const [showPassword, setShowPassword] = React.useState(false);
   const [errors, setErrors] = React.useState({});
   const [loading, setLoading] = React.useState(false);
+  const [socialLoading, setSocialLoading] = React.useState(null);
 
   const validateEmail = email => {
     return /^\S+@\S+\.\S+$/.test(email);
@@ -60,7 +59,13 @@ export default function Login({navigation}) {
           Alert.alert(
             'Verification Required',
             'A verification code has been sent to your email. Please enter it to sign in.',
-            [{text: 'OK', onPress: () => navigation.navigate('OtpVerification', { email: cleanEmail })}],
+            [
+              {
+                text: 'OK',
+                onPress: () =>
+                  navigation.navigate('OtpVerification', {email: cleanEmail}),
+              },
+            ],
           );
         } else if (res.token) {
           // Normal successful login
@@ -80,6 +85,32 @@ export default function Login({navigation}) {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSocialSignIn = async provider => {
+    setSocialLoading(provider);
+    try {
+      const res =
+        provider === 'google'
+          ? await signInWithGoogle()
+          : await signInWithApple();
+
+      if (res?.cancelled) {
+        return;
+      }
+
+      if (res?.success && res.token) {
+        await api.setAuthToken(res.token);
+        navigation.replace('MainScreen');
+      }
+    } catch (err) {
+      Alert.alert(
+        'Sign In Failed',
+        err.message || `Could not sign in with ${provider}.`,
+      );
+    } finally {
+      setSocialLoading(null);
     }
   };
 
@@ -152,7 +183,13 @@ export default function Login({navigation}) {
               }}
               right={
                 <TextInput.Icon
-                  icon={() => <Entypo name={showPassword ? 'eye-with-line' : 'eye'} size={20} color="#A1A1AC" />}
+                  icon={() => (
+                    <Entypo
+                      name={showPassword ? 'eye-with-line' : 'eye'}
+                      size={20}
+                      color="#A1A1AC"
+                    />
+                  )}
                   onPress={() => setShowPassword(!showPassword)}
                 />
               }
@@ -176,6 +213,12 @@ export default function Login({navigation}) {
                 </Text>
               </ImageBackground>
             </Pressable>
+
+            <SocialSignInButtons
+              loadingProvider={socialLoading}
+              onPressGoogle={() => handleSocialSignIn('google')}
+              onPressApple={() => handleSocialSignIn('apple')}
+            />
 
             <Pressable
               onPress={() => navigation.navigate('ForgetPassword')}

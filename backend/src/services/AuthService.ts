@@ -388,125 +388,189 @@ export class AuthService {
     rawNonce?: string,
     deviceInfo?: {deviceId: string; model: string; os: string},
   ): Promise<{token: string; isNewUser: boolean}> {
-    const profile =
-      provider === 'google'
-        ? await verifyGoogleToken(token)
-        : await verifyAppleToken(token, rawNonce);
-
-    const providerColumn = provider === 'google' ? 'google_sub' : 'apple_sub';
-    const email = (profile.email || userInput?.email || '')
-      .toLowerCase()
-      .trim();
-    const displayName =
-      profile.name ||
-      userInput?.name ||
-      (email
-        ? email.split('@')[0]
-        : `${provider}_${profile.subject.slice(0, 8)}`);
-    const avatarUrl = profile.picture || userInput?.photo || null;
-
-    const client = await pool.connect();
-    let user: {user_id: string; role: string} | null = null;
-    let isNewUser = false;
-
+    const startTime = Date.now();
+    const requestId = startTime.toString();
+    
     try {
-      await client.query('BEGIN');
+      console.log(`[AuthService - ${requestId}] Starting social login:`, {
+        provider,
+        userEmail: userInput?.email,
+        timestamp: new Date().toISOString(),
+      });
 
-      const byProvider = await client.query(
-        `SELECT user_id, role FROM users WHERE ${providerColumn} = $1`,
-        [profile.subject],
-      );
-      user = byProvider.rows[0] || null;
+      console.log(`[AuthService - ${requestId}] Verifying ${provider} token`);
+      const profile =
+        provider === 'google'
+          ? await verifyGoogleToken(token)
+          : await verifyAppleToken(token, rawNonce);
 
-      if (!user && email) {
-        const byEmail = await client.query(
-          'SELECT user_id, role FROM users WHERE email = $1',
-          [email],
+      console.log(`[AuthService - ${requestId}] Token verified successfully:`, {
+        provider,
+        profileEmail: profile.email,
+        profileSubject: profile.subject.slice(0, 8) + '...',
+      });
+
+      const providerColumn = provider === 'google' ? 'google_sub' : 'apple_sub';
+      const email = (profile.email || userInput?.email || '')
+        .toLowerCase()
+        .trim();
+      const displayName =
+        profile.name ||
+        userInput?.name ||
+        (email
+          ? email.split('@')[0]
+          : `${provider}_${profile.subject.slice(0, 8)}`);
+      const avatarUrl = profile.picture || userInput?.photo || null;
+
+      const client = await pool.connect();
+      let user: {user_id: string; role: string} | null = null;
+      let isNewUser = false;
+
+      try {
+        await client.query('BEGIN');
+
+        console.log(`[AuthService - ${requestId}] Checking for existing user by ${provider}`);
+        const byProvider = await client.query(
+          `SELECT user_id, role FROM users WHERE ${providerColumn} = $1`,
+          [profile.subject],
         );
-        user = byEmail.rows[0] || null;
-      }
+        user = byProvider.rows[0] || null;
 
-      if (user) {
-        await client.query(
-          `UPDATE users
-             SET ${providerColumn} = COALESCE(${providerColumn}, $1),
-                 is_verified = true,
-                 verification_code = NULL,
-                 verification_expires_at = NULL,
-                 display_name = COALESCE(display_name, $2),
-                 avatar_url = COALESCE(avatar_url, $3),
-                 last_login_provider = $4,
-                 updated_at = NOW()
-           WHERE user_id = $5`,
-          [profile.subject, displayName, avatarUrl, provider, user.user_id],
-        );
-      } else {
-        if (!email) {
-          throw new Error(
-            'Apple did not return an email address. Please share your email on first sign in and try again.',
+        if (!user && email) {
+          console.log(`[AuthService - ${requestId}] No user found by provider, checking by email: ${email}`);
+          const byEmail = await client.query(
+            'SELECT user_id, role FROM users WHERE email = $1',
+            [email],
           );
+          user = byEmail.rows[0] || null;
         }
 
-        const referralCode = Math.random()
-          .toString(36)
-          .substring(2, 10)
-          .toUpperCase();
-        const username = await this.generateUniqueUsername(
-          client,
-          displayName || email,
-        );
+        if (user) {
+          console.log(`[AuthService - ${requestId}] Existing user found:`, {
+            userId: user.user_id,
+            role: user.role,
+          });
 
-        const {rows} = await client.query(
-          `INSERT INTO users (
-             username,
-             display_name,
-             email,
-             password_hash,
-             plan_type,
-             trial_ends_at,
-             referral_code,
-             is_verified,
-             verification_code,
-             verification_expires_at,
-             ${providerColumn},
-             last_login_provider,
-             avatar_url
-           )
-           VALUES ($1, $2, $3, NULL, 'free', NOW() + INTERVAL '7 days', $4, true, NULL, NULL, $5, $6, $7)
-           RETURNING user_id, role`,
-          [
-            username,
-            displayName,
-            email,
+          await client.query(
+            `UPDATE users
+               SET ${providerColumn} = COALESCE(${providerColumn}, $1),
+                   is_verified = true,
+                   verification_code = NULL,
+                   verification_expires_at = NULL,
+                   display_name = COALESCE(display_name, $2),
+                   avatar_url = COALESCE(avatar_url, $3),
+                   last_login_provider = $4,
+                   updated_at = NOW()
+             WHERE user_id = $5`,
+            [profile.subject, displayName, avatarUrl, provider, user.user_id],
+          );
+
+          console.log(`[AuthService - ${requestId}] Existing user updated successfully`);
+        } else {
+          console.log(`[AuthService - ${requestId}] Creating new user for ${provider}`);
+
+          if (!email) {
+            console.error(`[AuthService - ${requestId}] New user creation failed: no email provided`);
+            throw new Error(
+              'Apple did not return an email address. Please share your email on first sign in and try again.',
+            );
+          }
+
+          const referralCode = Math.random()
+            .toString(36)
+            .substring(2, 10)
+            .toUpperCase();
+          const username = await this.generateUniqueUsername(
+            client,
+            displayName || email,
+          );
+
+          console.log(`[AuthService - ${requestId}] Generated username for new user:`, {username});
+
+          const {rows} = await client.query(
+            `INSERT INTO users (
+               username,
+               display_name,
+               email,
+               password_hash,
+               plan_type,
+               trial_ends_at,
+               referral_code,
+               is_verified,
+               verification_code,
+               verification_expires_at,
+               ${providerColumn},
+               last_login_provider,
+               avatar_url
+             )
+             VALUES ($1, $2, $3, NULL, 'free', NOW() + INTERVAL '7 days', $4, true, NULL, NULL, $5, $6, $7)
+             RETURNING user_id, role`,
+            [
+              username,
+              displayName,
+              email,
+              referralCode,
+              profile.subject,
+              provider,
+              avatarUrl,
+            ],
+          );
+
+          user = rows[0];
+          isNewUser = true;
+
+          console.log(`[AuthService - ${requestId}] New user created successfully:`, {
+            userId: user.user_id,
+            role: user.role,
             referralCode,
-            profile.subject,
-            provider,
-            avatarUrl,
-          ],
-        );
+          });
+        }
 
-        user = rows[0];
-        isNewUser = true;
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        console.error(`[AuthService - ${requestId}] Database transaction failed:`, {
+          error: (error as Error).message,
+        });
+        throw error;
+      } finally {
+        client.release();
       }
 
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
+      if (!user) {
+        console.error(`[AuthService - ${requestId}] User object is null after transaction`);
+        throw new Error('Could not create or load the social account.');
+      }
+
+      console.log(`[AuthService - ${requestId}] Registering device`);
+      await this.registerDevice(user.user_id, deviceInfo as any);
+
+      const token = createAuthToken(user.user_id, user.role);
+      const duration = Date.now() - startTime;
+
+      console.log(`[AuthService - ${requestId}] Social login completed successfully:`, {
+        provider,
+        isNewUser,
+        userId: user.user_id,
+        duration: `${duration}ms`,
+        timestamp: new Date().toISOString(),
+      });
+
+      return {
+        token,
+        isNewUser,
+      };
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      console.error(`[AuthService - ${requestId}] Social login failed:`, {
+        provider,
+        errorMessage: error.message,
+        duration: `${duration}ms`,
+        timestamp: new Date().toISOString(),
+        stack: error.stack,
+      });
       throw error;
-    } finally {
-      client.release();
     }
-
-    if (!user) {
-      throw new Error('Could not create or load the social account.');
-    }
-
-    await this.registerDevice(user.user_id, deviceInfo as any);
-
-    return {
-      token: createAuthToken(user.user_id, user.role),
-      isNewUser,
-    };
   }
 
   static async sendOtp(email: string): Promise<any> {

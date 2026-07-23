@@ -34,17 +34,18 @@ export default function SocialSignInButtons({
     <View style={styles.container}>
       <View style={styles.dividerRow}>
         <View style={styles.divider} />
-        <Text style={styles.dividerText}>or continue with</Text>
+        <Text style={styles.dividerText}>or sign in with</Text>
         <View style={styles.divider} />
       </View>
 
-      <View style={styles.buttonRow}>
+      <View style={styles.buttonStack}>
         {PROVIDERS.map(provider => (
           <Pressable
             key={provider.key}
             accessibilityRole="button"
             accessibilityLabel={`Sign in with ${provider.label}`}
             disabled={isDisabled}
+            hitSlop={8}
             onPress={provider.key === 'google' ? onPressGoogle : onPressApple}
             style={({pressed}) => [
               styles.socialButton,
@@ -56,13 +57,18 @@ export default function SocialSignInButtons({
             {isLoading(provider.key) ? (
               <ActivityIndicator color="#6B8F04" />
             ) : (
-              <Image
-                source={provider.icon}
-                style={[
-                  styles.socialIcon,
-                  provider.tintColor ? {tintColor: provider.tintColor} : null,
-                ]}
-              />
+              <>
+                <Image
+                  source={provider.icon}
+                  style={[
+                    styles.socialIcon,
+                    provider.tintColor ? {tintColor: provider.tintColor} : null,
+                  ]}
+                />
+                <Text style={styles.socialText}>
+                  Continue with {provider.label}
+                </Text>
+              </>
             )}
           </Pressable>
         ))}
@@ -91,19 +97,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginHorizontal: 12,
   },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: 14,
+  buttonStack: {
+    gap: 12,
   },
   socialButton: {
-    flex: 1,
-    height: 54,
+    width: '100%',
+    minHeight: 56,
     borderRadius: 15,
     borderWidth: 1,
     borderColor: '#171B2E',
     backgroundColor: '#0A1227',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 16,
   },
   socialButtonPressed: {
     borderColor: '#6B8F04',
@@ -116,5 +123,11 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     resizeMode: 'contain',
+  },
+  socialText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+    marginLeft: 12,
   },
 });

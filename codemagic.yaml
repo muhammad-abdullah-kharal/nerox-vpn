@@ -413,7 +413,7 @@ workflows:
           TEAM_ID        = '6ZN7399P3U'
           MAIN_BUNDLE_ID = 'org.reactjs.native.example.Nerox'
           PKT_BUNDLE_ID  = "#{MAIN_BUNDLE_ID}.PacketTunnel"
-          MAIN_PROFILE   = '4250a012-2d5e-4164-a0d9-3c6b59950937'
+          MAIN_PROFILE   = '00dc966e-12eb-4fc1-a883-4ea6f7ac3ea3'
           PKT_PROFILE    = 'ba9b8b32-6949-4963-a3a3-f3e7c6a50d94'
 
           def configure_main(target)
@@ -609,7 +609,7 @@ workflows:
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
 
           echo $CM_PROVISIONING_PROFILE | base64 --decode \
-            > "$HOME/Library/MobileDevice/Provisioning Profiles/4250a012-2d5e-4164-a0d9-3c6b59950937.mobileprovision"
+            > "$HOME/Library/MobileDevice/Provisioning Profiles/00dc966e-12eb-4fc1-a883-4ea6f7ac3ea3.mobileprovision"
 
           echo $CM_PROVISIONING_PROFILE_PACKETTUNNEL | base64 --decode \
             > "$HOME/Library/MobileDevice/Provisioning Profiles/ba9b8b32-6949-4963-a3a3-f3e7c6a50d94.mobileprovision"
@@ -636,7 +636,7 @@ workflows:
               <key>provisioningProfiles</key>
               <dict>
                   <key>org.reactjs.native.example.Nerox</key>
-                  <string>4250a012-2d5e-4164-a0d9-3c6b59950937</string>
+                  <string>00dc966e-12eb-4fc1-a883-4ea6f7ac3ea3</string>
                   <key>org.reactjs.native.example.Nerox.PacketTunnel</key>
                   <string>ba9b8b32-6949-4963-a3a3-f3e7c6a50d94</string>
               </dict>

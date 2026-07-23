@@ -1,4 +1,4 @@
-import { NativeModules } from 'react-native';
+import {NativeModules} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
 
@@ -63,13 +63,19 @@ class VpnService {
     try {
       await this.stopNativeTunnel();
     } catch (stopErr) {
-      console.warn('[VpnService] Native tunnel cleanup after failed start failed:', stopErr);
+      console.warn(
+        '[VpnService] Native tunnel cleanup after failed start failed:',
+        stopErr,
+      );
     }
 
     try {
       await api.put(`/sessions/${session.session_id}`, {});
     } catch (cleanupErr) {
-      console.warn('[VpnService] Backend session cleanup after failed start failed:', cleanupErr);
+      console.warn(
+        '[VpnService] Backend session cleanup after failed start failed:',
+        cleanupErr,
+      );
     }
   }
 
@@ -118,7 +124,7 @@ class VpnService {
   }
 
   async getNativeStatus() {
-    const { WireGuardTunnel } = NativeModules;
+    const {WireGuardTunnel} = NativeModules;
     if (!WireGuardTunnel || !WireGuardTunnel.getStatus) return null;
 
     return await WireGuardTunnel.getStatus();
@@ -131,22 +137,34 @@ class VpnService {
     const nativeState = this.normalizeNativeStatus(nativeStatus);
     const storedSession = await this.loadActiveSession();
 
-    if (nativeState === VPN_STATES.CONNECTED || nativeState === VPN_STATES.CONNECTING) {
+    if (
+      nativeState === VPN_STATES.CONNECTED ||
+      nativeState === VPN_STATES.CONNECTING
+    ) {
       this.activeSession = storedSession || this.activeSession;
-      this.setStatus(nativeState === VPN_STATES.CONNECTED ? 'Connected' : 'Restoring connection...');
+      this.setStatus(
+        nativeState === VPN_STATES.CONNECTED
+          ? 'Connected'
+          : 'Restoring connection...',
+      );
       this.setState(nativeState);
       return nativeState;
     }
 
     if (storedSession?.session_id) {
       try {
-        // DO NOT aggressively end the backend session here. 
-        // The Android VPN permission dialog or momentary status drops cause this to fire 
+        // DO NOT aggressively end the backend session here.
+        // The Android VPN permission dialog or momentary status drops cause this to fire
         // while connecting, removing the peer from the server and causing "No Internet".
         // Stale sessions are cleaned up automatically by the backend anyway.
-        console.log(`[VpnService] Sync state found disconnected native tunnel. Skipping backend API disconnect for session ${storedSession.session_id}`);
+        console.log(
+          `[VpnService] Sync state found disconnected native tunnel. Skipping backend API disconnect for session ${storedSession.session_id}`,
+        );
       } catch (err) {
-        console.warn('[VpnService] Failed to close stale backend session during restore:', err);
+        console.warn(
+          '[VpnService] Failed to close stale backend session during restore:',
+          err,
+        );
       }
     }
 
@@ -187,21 +205,27 @@ class VpnService {
    */
   async getUserPlanState() {
     try {
-      const userData = await api.get('/user/profile', { silent: true });
-      if (!userData) return { plan_type: 'free', is_premium: false };
+      const userData = await api.get('/user/profile', {silent: true});
+      if (!userData) return {plan_type: 'free', is_premium: false};
 
       const now = new Date();
       const planType = userData.plan_type;
-      const subEnd = userData.subscription_end_date ? new Date(userData.subscription_end_date) : null;
+      const subEnd = userData.subscription_end_date
+        ? new Date(userData.subscription_end_date)
+        : null;
       // Fallback: If no trial set, assume 7 days from account creation
-      const trialEnd = userData.trial_ends_at ? new Date(userData.trial_ends_at) : new Date(new Date(userData.created_at).getTime() + 7 * 24 * 60 * 60 * 1000);
-      
+      const trialEnd = userData.trial_ends_at
+        ? new Date(userData.trial_ends_at)
+        : new Date(
+            new Date(userData.created_at).getTime() + 7 * 24 * 60 * 60 * 1000,
+          );
+
       const isSubActive = planType === 'premium' && (!subEnd || subEnd > now);
       const isTrialActive = trialEnd && trialEnd > now;
-      
-      // If they have a paid subscription, they are premium. 
+
+      // If they have a paid subscription, they are premium.
       // If they are in the 7-day trial, they are 'free' tier (with limits).
-      const isPremium = isSubActive; 
+      const isPremium = isSubActive;
 
       return {
         plan_type: isPremium ? 'premium' : 'free',
@@ -213,13 +237,13 @@ class VpnService {
         subscription_end_date: subEnd,
         trial_ends_at: trialEnd,
         created_at: userData.created_at,
-        active_plan_id: userData.active_plan_id
+        active_plan_id: userData.active_plan_id,
       };
     } catch (err) {
       if (!err.message?.includes('Network request failed')) {
         console.error('Error fetching plan state:', err);
       }
-      return { plan_type: 'free', is_premium: false };
+      return {plan_type: 'free', is_premium: false};
     }
   }
 
@@ -232,7 +256,14 @@ class VpnService {
   }
 
   notify() {
-    this.listeners.forEach(callback => callback(this.currentState, this.activeSession, this.statusMessage, this.attemptedServer));
+    this.listeners.forEach(callback =>
+      callback(
+        this.currentState,
+        this.activeSession,
+        this.statusMessage,
+        this.attemptedServer,
+      ),
+    );
   }
 
   setStatus(msg) {
@@ -250,7 +281,7 @@ class VpnService {
   }
 
   async setSplitTunnelingConfig(config) {
-    return await api.post('/settings/split-tunneling', { config });
+    return await api.post('/settings/split-tunneling', {config});
   }
 
   async getFeedbackHistory() {
@@ -258,7 +289,7 @@ class VpnService {
   }
 
   async submitFeedback(category, subject, message) {
-    return await api.post('/support/feedback', { category, subject, message });
+    return await api.post('/support/feedback', {category, subject, message});
   }
 
   async getFaqCategories() {
@@ -295,22 +326,34 @@ class VpnService {
     try {
       const planState = await this.getUserPlanState();
       if (planState.is_trial_expired && !planState.is_premium) {
-        throw new Error('Your free trial has expired. Please upgrade to a premium plan to continue using Nerox VPN.');
+        throw new Error(
+          'Your free trial has expired. Please upgrade to a premium plan to continue using Nerox VPN.',
+        );
       }
 
       this.setState(VPN_STATES.CONNECTING);
-      this.setStatus(retryCount > 0 ? `Retrying... (${retryCount})` : 'Authenticating...');
+      this.setStatus(
+        retryCount > 0 ? `Retrying... (${retryCount})` : 'Authenticating...',
+      );
       this.attemptedServer = serverId;
       this.notify();
 
-      session = await api.post('/sessions', { serverId });
-      
+      session = await api.post('/sessions', {serverId});
+
       console.log(`[VpnService] Session created: ${session.session_id}`);
-      console.log(`[VpnService] WireGuard configuration received for ${session.server?.hostname || 'server'}`);
+      console.log(
+        `[VpnService] WireGuard configuration received for ${
+          session.server?.hostname || 'server'
+        }`,
+      );
 
       this.setStatus('Securing Tunnel...');
       try {
-        await this.startNativeTunnel(session.assigned_vpn_ip, session.config, session.splitTunneling);
+        await this.startNativeTunnel(
+          session.assigned_vpn_ip,
+          session.config,
+          session.splitTunneling,
+        );
       } catch (nativeErr) {
         await this.cleanupFailedSession(session);
         throw this.markNoRetry(nativeErr);
@@ -320,7 +363,9 @@ class VpnService {
       // and syncStateFromNative might have momentarily set currentState to DISCONNECTED.
       // We should NOT aggressively disconnect here, as startNativeTunnel just succeeded!
       if (this.currentState === VPN_STATES.DISCONNECTED) {
-        console.log('[VpnService] State is DISCONNECTED after tunnel start, ignoring to avoid race condition with permission dialog.');
+        console.log(
+          '[VpnService] State is DISCONNECTED after tunnel start, ignoring to avoid race condition with permission dialog.',
+        );
       }
 
       this.activeSession = session;
@@ -329,7 +374,6 @@ class VpnService {
       this.setStatus('Connected');
       this.setState(VPN_STATES.CONNECTED);
       return session;
-
     } catch (err) {
       this.attemptedServer = null;
       if (
@@ -351,17 +395,18 @@ class VpnService {
   }
 
   async setPreferredProtocol(protocol) {
-    return await api.post('/settings/protocol', { protocol });
+    return await api.post('/settings/protocol', {protocol});
   }
 
   async connectSmart() {
     this.setState(VPN_STATES.CONNECTING);
     this.setStatus('Optimizing Route...');
-    
+
     try {
       const candidates = await this.getOptimalServer();
-      if (!candidates || candidates.length === 0) throw new Error('No available servers found');
-      
+      if (!candidates || candidates.length === 0)
+        throw new Error('No available servers found');
+
       // Attempt connection to candidates in order (Fallback Logic)
       for (let i = 0; i < candidates.length; i++) {
         const server = candidates[i];
@@ -372,7 +417,9 @@ class VpnService {
           if (!this.isRetryableError(err)) {
             throw err;
           }
-          console.warn(`[VpnService] Failed to connect to ${server.hostname}, trying next...`);
+          console.warn(
+            `[VpnService] Failed to connect to ${server.hostname}, trying next...`,
+          );
           if (i === candidates.length - 1) throw err; // Re-throw if it was the last one
         }
       }
@@ -383,7 +430,8 @@ class VpnService {
   }
 
   async disconnect() {
-    const storedSession = this.activeSession || await this.loadActiveSession();
+    const storedSession =
+      this.activeSession || (await this.loadActiveSession());
     const sessionId = storedSession?.session_id;
     let stopError = null;
     let backendError = null;
@@ -416,7 +464,7 @@ class VpnService {
     if (this.currentState !== VPN_STATES.CONNECTED) return null;
 
     try {
-      const { WireGuardTunnel } = NativeModules;
+      const {WireGuardTunnel} = NativeModules;
       if (WireGuardTunnel && WireGuardTunnel.getStatistics) {
         const nativeStats = await WireGuardTunnel.getStatistics();
         const totalReceived = nativeStats.totalReceived || 0;
@@ -440,34 +488,31 @@ class VpnService {
           downloadSpeed,
           uploadSpeed,
           totalReceived,
-          totalSent
+          totalSent,
         };
       }
     } catch (err) {
-      console.warn('[VpnService] Native getStatistics failed, using estimates:', err.message);
+      console.warn(
+        '[VpnService] Native getStatistics failed, using estimates:',
+        err.message,
+      );
     }
 
-    // Fallback: generate estimated traffic data if native stats unavailable
-    const downloadSpeed = Math.floor(Math.random() * 4500000) + 500000;
-    const uploadSpeed = Math.floor(Math.random() * 1200000) + 100000;
-
-    const newDownload = Math.round((downloadSpeed * 3) / 8);
-    const newUpload = Math.round((uploadSpeed * 3) / 8);
-
-    this.mockTotalReceived += newDownload;
-    this.mockTotalSent += newUpload;
-
     return {
-      downloadSpeed,
-      uploadSpeed,
+      downloadSpeed: 0,
+      uploadSpeed: 0,
       totalReceived: this.mockTotalReceived,
-      totalSent: this.mockTotalSent
+      totalSent: this.mockTotalSent,
     };
   }
 
   async reportTraffic(sessionId, bytesSent, bytesReceived) {
     try {
-      return await api.post('/sessions/report', { sessionId, bytesSent, bytesReceived }, { silent: true });
+      return await api.post(
+        '/sessions/report',
+        {sessionId, bytesSent, bytesReceived},
+        {silent: true},
+      );
     } catch (err) {
       if (!err.message?.includes('Network request failed')) {
         console.error('Error reporting traffic:', err);
@@ -476,14 +521,18 @@ class VpnService {
   }
 
   async startNativeTunnel(ip, config, splitTunneling) {
-    const { WireGuardTunnel } = NativeModules;
+    const {WireGuardTunnel} = NativeModules;
     if (!WireGuardTunnel || !WireGuardTunnel.start) {
-      throw new Error('Native WireGuard module is not linked in this build. Rebuild the native Android/iOS app.');
+      throw new Error(
+        'Native WireGuard module is not linked in this build. Rebuild the native Android/iOS app.',
+      );
     }
 
     console.log(`[NativeTunnel] Starting real WireGuard tunnel for IP: ${ip}`);
     if (splitTunneling && splitTunneling.allowedApps) {
-      console.log(`[NativeTunnel] Split tunneling config for ${splitTunneling.allowedApps.length} apps`);
+      console.log(
+        `[NativeTunnel] Split tunneling config for ${splitTunneling.allowedApps.length} apps`,
+      );
     }
 
     try {
@@ -491,17 +540,24 @@ class VpnService {
     } catch (err) {
       // iOS: user ne VPN permission "Don't Allow" kiya
       const code = err?.code || '';
-      if (code === 'WG_SAVE_FAILED' || String(err?.message || '').toLowerCase().includes('permission')) {
-        const permErr = new Error('VPN permission was denied. Please allow VPN configuration to connect.');
+      if (
+        code === 'WG_SAVE_FAILED' ||
+        String(err?.message || '')
+          .toLowerCase()
+          .includes('permission')
+      ) {
+        const permErr = new Error(
+          'VPN permission was denied. Please allow VPN configuration to connect.',
+        );
         permErr.noRetry = true;
         throw permErr;
       }
       throw err;
     }
-}
+  }
 
   async stopNativeTunnel() {
-    const { WireGuardTunnel } = NativeModules;
+    const {WireGuardTunnel} = NativeModules;
     if (!WireGuardTunnel || !WireGuardTunnel.stop) return false;
 
     console.log('[NativeTunnel] Stopping real WireGuard tunnel');

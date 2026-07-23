@@ -11,9 +11,9 @@ import {
   Pressable,
   Share as RNShare,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
 } from 'react-native';
-import { supabase } from '../supabase';
+import {supabase} from '../supabase';
 
 export default function Share({navigation}) {
   const [referralCode, setReferralCode] = useState('');
@@ -22,14 +22,16 @@ export default function Share({navigation}) {
   useEffect(() => {
     async function fetchReferralCode() {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+          data: {user},
+        } = await supabase.auth.getUser();
         if (user) {
-          const { data, error } = await supabase
+          const {data, error} = await supabase
             .from('users')
             .select('referral_code')
             .eq('user_id', user.id)
             .maybeSingle();
-          
+
           if (error) throw error;
           setReferralCode(data?.referral_code || 'NEROX-XXXX');
         }
@@ -42,13 +44,12 @@ export default function Share({navigation}) {
     fetchReferralCode();
   }, []);
 
-  const onShare = async (platform) => {
+  const onShare = async platform => {
     if (loading || !referralCode) return;
 
     try {
       const result = await RNShare.share({
-        message:
-          `Join me on Nerox VPN and get extra premium days! Use my referral code: ${referralCode}\n\nDownload now: https://neroxvpn.app`,
+        message: `Join me on Nerox VPN and get extra premium days! Use my referral code: ${referralCode}\n\nDownload now: https://neroxvpn.app`,
         title: 'Share Nerox VPN',
       });
       if (result.action === RNShare.sharedAction) {
@@ -119,7 +120,7 @@ export default function Share({navigation}) {
               }}>
               Share
             </Text>
-            <View style={{ width: 40 }} />
+            <View style={{width: 40}} />
           </View>
           <View style={{height: 20}} />
 
@@ -153,8 +154,7 @@ export default function Share({navigation}) {
               alignItems: 'center',
             }}>
             <Pressable onPress={() => onShare('whatsapp')}>
-              <View
-                style={styles.shareCard}>
+              <View style={styles.shareCard}>
                 <Image
                   source={require('../assets/whatsapp.png')}
                   style={styles.shareIcon}
@@ -183,16 +183,6 @@ export default function Share({navigation}) {
               justifyContent: 'space-between',
               alignItems: 'center',
             }}>
-            <Pressable onPress={() => onShare('facebook')}>
-              <View style={styles.shareCard}>
-                <Image
-                  source={require('../assets/facebook1.png')}
-                  style={styles.shareIcon}
-                />
-                <View style={{height: 5}} />
-                <Text style={styles.shareText}>Facebook</Text>
-              </View>
-            </Pressable>
             <Pressable onPress={() => onShare('telegram')}>
               <View style={styles.shareCard}>
                 <Image
@@ -201,6 +191,16 @@ export default function Share({navigation}) {
                 />
                 <View style={{height: 5}} />
                 <Text style={styles.shareText}>Telegram</Text>
+              </View>
+            </Pressable>
+            <Pressable onPress={() => onShare('slack')}>
+              <View style={styles.shareCard}>
+                <Image
+                  source={require('../assets/slack.png')}
+                  style={styles.shareIcon}
+                />
+                <View style={{height: 5}} />
+                <Text style={styles.shareText}>Slack</Text>
               </View>
             </Pressable>
           </View>
@@ -213,16 +213,6 @@ export default function Share({navigation}) {
               justifyContent: 'space-between',
               alignItems: 'center',
             }}>
-            <Pressable onPress={() => onShare('slack')}>
-              <View style={styles.shareCard}>
-                <Image
-                  source={require('../assets/slack.png')}
-                  style={styles.shareIcon}
-                />
-                <View style={{height: 5}} />
-                <Text style={styles.shareText}>Slack</Text>
-              </View>
-            </Pressable>
             <Pressable onPress={() => onShare('twitter')}>
               <View style={styles.shareCard}>
                 <Image
@@ -297,4 +287,3 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 });
-

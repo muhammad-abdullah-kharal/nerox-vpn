@@ -89,22 +89,40 @@ export default function Login({navigation}) {
   };
 
   const handleSocialSignIn = async provider => {
+    console.log(`[Login Screen] User initiated ${provider} sign-in`);
     setSocialLoading(provider);
     try {
+      console.log(`[Login Screen] Calling ${provider} authentication function`);
       const res =
         provider === 'google'
           ? await signInWithGoogle()
           : await signInWithApple();
 
+      console.log(`[Login Screen] ${provider} authentication response:`, {
+        provider,
+        cancelled: res?.cancelled,
+        success: res?.success,
+        hasToken: !!res?.token,
+        isNewUser: res?.isNewUser,
+      });
+
       if (res?.cancelled) {
+        console.log(`[Login Screen] ${provider} sign-in was cancelled by user`);
         return;
       }
 
       if (res?.success && res.token) {
+        console.log(`[Login Screen] ${provider} sign-in successful, setting token and navigating`);
         await api.setAuthToken(res.token);
         navigation.replace('MainScreen');
+      } else {
+        console.warn(`[Login Screen] ${provider} response missing success or token:`, res);
       }
     } catch (err) {
+      console.error(`[Login Screen] ${provider} sign-in error:`, {
+        message: err.message,
+        stack: err.stack,
+      });
       Alert.alert(
         'Sign In Failed',
         err.message || `Could not sign in with ${provider}.`,

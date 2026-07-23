@@ -4,7 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Change the DEV_API_URL to your PC's local IP address.
 const DEV_API_URL = 'http://192.168.0.104:5000/api';
 const PROD_API_URL = 'https://api.neroxvpn.com/api'; // Live production backend
-const API_URL = typeof __DEV__ !== 'undefined' && __DEV__ ? DEV_API_URL : PROD_API_URL;
+const USE_LOCAL_API = false;
+const API_URL = USE_LOCAL_API ? DEV_API_URL : PROD_API_URL;
 const DEBUG_API = typeof __DEV__ !== 'undefined' && __DEV__;
 const NETWORK_ERROR_MESSAGE =
   'Unable to connect to the server. Please check your internet connection and try again.';
@@ -63,8 +64,7 @@ const parseResponseBody = responseText => {
   }
 };
 
-const looksLikeHtml = value =>
-  /<!doctype|<html|<\/?[a-z][\s\S]*>/i.test(value);
+const looksLikeHtml = value => /<!doctype|<html|<\/?[a-z][\s\S]*>/i.test(value);
 
 const getSafeMessage = value => {
   if (typeof value !== 'string') {
@@ -199,7 +199,7 @@ class Api {
       responseText = await response.text();
     } catch (error) {
       const duration = Date.now() - startedAt;
-      
+
       if (!options.silent) {
         logApi('error', `XX ${method} ${url} (${duration}ms)`, {
           message: error?.message,

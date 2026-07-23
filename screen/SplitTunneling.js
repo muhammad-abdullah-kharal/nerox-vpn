@@ -14,13 +14,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import VpnService from '../services/VpnService';
 
 const APPS_LIST = [
-  { id: 'chrome', name: 'Chrome', icon: require('../assets/Chromee.png') },
-  { id: 'instagram', name: 'Instagram', icon: require('../assets/Instagramm.png') },
-  { id: 'facebook', name: 'Facebook', icon: require('../assets/Facebookk.png') },
-  { id: 'twitter', name: 'Twitter', icon: require('../assets/Twitterr.png') },
-  { id: 'youtube', name: 'Youtube', icon: require('../assets/Youtubee.png') },
-  { id: 'playstore', name: 'PlayStore', icon: require('../assets/PlayStoree.png') },
-  { id: 'telegram', name: 'Telegram', icon: require('../assets/Telegramm.png') },
+  {id: 'chrome', name: 'Chrome', icon: require('../assets/Chromee.png')},
+  {
+    id: 'instagram',
+    name: 'Instagram',
+    icon: require('../assets/Instagramm.png'),
+  },
+  {id: 'twitter', name: 'Twitter', icon: require('../assets/Twitterr.png')},
+  {id: 'youtube', name: 'Youtube', icon: require('../assets/Youtubee.png')},
+  {
+    id: 'playstore',
+    name: 'PlayStore',
+    icon: require('../assets/PlayStoree.png'),
+  },
+  {id: 'telegram', name: 'Telegram', icon: require('../assets/Telegramm.png')},
 ];
 
 export default function SplitTunneling({navigation}) {
@@ -35,13 +42,16 @@ export default function SplitTunneling({navigation}) {
   const loadAppStates = async () => {
     try {
       setLoading(true);
-      
+
       // 1. Try to fetch from Backend first (Source of Truth)
       const backendConfig = await VpnService.getSplitTunnelingConfig();
-      
+
       if (Object.keys(backendConfig).length > 0) {
         setAppStates(backendConfig);
-        await AsyncStorage.setItem('split_tunneling_apps', JSON.stringify(backendConfig));
+        await AsyncStorage.setItem(
+          'split_tunneling_apps',
+          JSON.stringify(backendConfig),
+        );
       } else {
         // 2. Fallback to Local if backend is empty
         const saved = await AsyncStorage.getItem('split_tunneling_apps');
@@ -53,7 +63,7 @@ export default function SplitTunneling({navigation}) {
         } else {
           // 3. Initial defaults
           const defaults = {};
-          APPS_LIST.forEach(app => defaults[app.id] = false);
+          APPS_LIST.forEach(app => (defaults[app.id] = false));
           setAppStates(defaults);
         }
       }
@@ -64,23 +74,22 @@ export default function SplitTunneling({navigation}) {
     }
   };
 
-  const toggleApp = async (appId) => {
+  const toggleApp = async appId => {
     try {
       setSyncing(true);
       const newState = {
         ...appStates,
-        [appId]: !appStates[appId]
+        [appId]: !appStates[appId],
       };
-      
+
       // Update Local State instantly for responsiveness
       setAppStates(newState);
-      
+
       // Background Sync to Backend & Local Storage
       await Promise.all([
         VpnService.setSplitTunnelingConfig(newState),
-        AsyncStorage.setItem('split_tunneling_apps', JSON.stringify(newState))
+        AsyncStorage.setItem('split_tunneling_apps', JSON.stringify(newState)),
       ]);
-      
     } catch (err) {
       console.error('Failed to save app state:', err);
     } finally {
@@ -93,33 +102,49 @@ export default function SplitTunneling({navigation}) {
       <View style={styles.innerContent}>
         <View style={styles.header}>
           <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Image source={require('../assets/Left.png')} style={styles.backIcon} />
+            <Image
+              source={require('../assets/Left.png')}
+              style={styles.backIcon}
+            />
           </Pressable>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-             <Text style={styles.headerTitle}>Split Tunneling</Text>
-             {syncing && <ActivityIndicator size="small" color="#6B8F04" style={{ marginLeft: 10 }} />}
+          <View style={{flexDirection: 'row', alignItems: 'center'}}>
+            <Text style={styles.headerTitle}>Split Tunneling</Text>
+            {syncing && (
+              <ActivityIndicator
+                size="small"
+                color="#6B8F04"
+                style={{marginLeft: 10}}
+              />
+            )}
           </View>
-          <View style={{ width: 40 }} />
+          <View style={{width: 40}} />
         </View>
 
-        <View style={{ height: 20 }} />
+        <View style={{height: 20}} />
 
-        <Image source={require('../assets/Split.png')} style={styles.mainIcon} />
-        
-        <View style={{ height: 10 }} />
+        <Image
+          source={require('../assets/Split.png')}
+          style={styles.mainIcon}
+        />
+
+        <View style={{height: 10}} />
 
         <Text style={styles.description}>
-          All apps run through encrypted VPN connection. If you want to
-          exclude any app, tap the button on right.
+          All apps run through encrypted VPN connection. If you want to exclude
+          any app, tap the button on right.
         </Text>
 
-        <View style={{ height: 25 }} />
+        <View style={{height: 25}} />
 
         {loading ? (
-          <ActivityIndicator color="#6B8F04" size="large" style={{ marginTop: 30 }} />
+          <ActivityIndicator
+            color="#6B8F04"
+            size="large"
+            style={{marginTop: 30}}
+          />
         ) : (
           <View style={styles.appsContainer}>
-            {APPS_LIST.map((app) => (
+            {APPS_LIST.map(app => (
               <View key={app.id}>
                 <View style={styles.appRow}>
                   <View style={styles.appInfo}>
@@ -128,7 +153,7 @@ export default function SplitTunneling({navigation}) {
                   </View>
 
                   <Switch
-                    trackColor={{ false: '#4A4A61', true: '#1A1A24' }}
+                    trackColor={{false: '#4A4A61', true: '#1A1A24'}}
                     thumbColor={appStates[app.id] ? '#6B8F04' : '#ABABB1'}
                     onValueChange={() => toggleApp(app.id)}
                     value={appStates[app.id] || false}
@@ -139,7 +164,7 @@ export default function SplitTunneling({navigation}) {
             ))}
           </View>
         )}
-        <View style={{ height: 50 }} />
+        <View style={{height: 50}} />
       </View>
     </ScrollView>
   );
@@ -225,4 +250,3 @@ const styles = StyleSheet.create({
     backgroundColor: '#3A3A4D',
   },
 });
-

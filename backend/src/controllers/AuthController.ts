@@ -58,18 +58,32 @@ export class AuthController {
 
   // POST /api/auth/social
   static async socialLogin(req: Request, res: Response) {
+    const requestId = Date.now().toString(); // Simple request tracking ID
+    
     try {
       const { provider, idToken, identityToken, nonce, user, deviceInfo } = req.body;
 
+      console.log(`[Social Auth - ${requestId}] Received social login request:`, {
+        provider,
+        timestamp: new Date().toISOString(),
+        hasIdToken: !!idToken,
+        hasIdentityToken: !!identityToken,
+        userEmail: user?.email,
+        deviceInfo: deviceInfo?.model,
+      });
+
       if (provider !== 'google' && provider !== 'apple') {
+        console.warn(`[Social Auth - ${requestId}] Invalid provider: ${provider}`);
         return res.status(400).json({ error: 'Provider must be google or apple.' });
       }
 
       const token = provider === 'google' ? idToken : identityToken || idToken;
       if (!token) {
+        console.warn(`[Social Auth - ${requestId}] No identity token provided`);
         return res.status(400).json({ error: 'Identity token is required.' });
       }
 
+      console.log(`[Social Auth - ${requestId}] Authenticating with ${provider} service`);
       const result = await AuthService.socialLogin(
         provider,
         token,
@@ -78,12 +92,24 @@ export class AuthController {
         deviceInfo,
       );
 
+      console.log(`[Social Auth - ${requestId}] Authentication successful:`, {
+        isNewUser: result.isNewUser,
+        hasToken: !!result.token,
+        timestamp: new Date().toISOString(),
+      });
+
       res.json({
         success: true,
         token: result.token,
         isNewUser: result.isNewUser,
       });
     } catch (error: any) {
+      console.error(`[Social Auth - ${requestId}] Authentication failed:`, {
+        errorMessage: error.message,
+        errorCode: error.code,
+        timestamp: new Date().toISOString(),
+        stack: error.stack,
+      });
       res.status(401).json({ error: error.message });
     }
   }

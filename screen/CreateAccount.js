@@ -107,22 +107,40 @@ export default function CreateAccount({navigation}) {
   };
 
   const handleSocialSignIn = async provider => {
+    console.log(`[Create Account Screen] User initiated ${provider} sign-in`);
     setSocialLoading(provider);
     try {
+      console.log(`[Create Account Screen] Calling ${provider} authentication function`);
       const res =
         provider === 'google'
           ? await signInWithGoogle()
           : await signInWithApple();
 
+      console.log(`[Create Account Screen] ${provider} authentication response:`, {
+        provider,
+        cancelled: res?.cancelled,
+        success: res?.success,
+        hasToken: !!res?.token,
+        isNewUser: res?.isNewUser,
+      });
+
       if (res?.cancelled) {
+        console.log(`[Create Account Screen] ${provider} sign-in was cancelled by user`);
         return;
       }
 
       if (res?.success && res.token) {
+        console.log(`[Create Account Screen] ${provider} sign-in successful, setting token and navigating`);
         await api.setAuthToken(res.token);
         navigation.replace('MainScreen');
+      } else {
+        console.warn(`[Create Account Screen] ${provider} response missing success or token:`, res);
       }
     } catch (err) {
+      console.error(`[Create Account Screen] ${provider} sign-in error:`, {
+        message: err.message,
+        stack: err.stack,
+      });
       Alert.alert(
         'Sign Up Failed',
         err.message || `Could not continue with ${provider}.`,

@@ -1,4 +1,5 @@
 import api from './api';
+import {signOutFromGoogle} from './socialAuth';
 
 class UserService {
   async getProfile() {
@@ -11,6 +12,7 @@ class UserService {
 
   async logout() {
     await api.setAuthToken(null);
+    await signOutFromGoogle();
   }
 
   async getUsageStats() {

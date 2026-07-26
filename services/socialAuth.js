@@ -7,16 +7,9 @@ import {
   isSuccessResponse,
   statusCodes,
 } from '@react-native-google-signin/google-signin';
-import appleAuth, {
-  appleAuthAndroid,
-} from '@invertase/react-native-apple-authentication';
+import appleAuth from '@invertase/react-native-apple-authentication';
 import api from './api';
-import {
-  APPLE_ANDROID_CLIENT_ID,
-  APPLE_ANDROID_REDIRECT_URI,
-  GOOGLE_IOS_CLIENT_ID,
-  GOOGLE_WEB_CLIENT_ID,
-} from './socialAuthConfig';
+import {GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID} from './socialAuthConfig';
 
 let googleConfigured = false;
 
@@ -136,6 +129,10 @@ const postSocialToken = async payload => {
 };
 
 export const signInWithGoogle = async () => {
+  if (Platform.OS !== 'android') {
+    throw new Error('Continue with Google is only available on Android devices.');
+  }
+
   configureGoogle();
 
   try {
@@ -189,7 +186,33 @@ export const signInWithGoogle = async () => {
   }
 };
 
+export const signOutFromGoogle = async () => {
+  // Signing out of the app does not sign the user out of Google automatically.
+  // Explicitly clearing this provider session makes the account chooser appear
+  // the next time the user selects "Continue with Google".
+  if (Platform.OS !== 'android') {
+    return;
+  }
+
+  configureGoogle();
+
+  try {
+    const isSignedIn = await GoogleSignin.isSignedIn();
+    if (isSignedIn) {
+      await GoogleSignin.signOut();
+    }
+  } catch (error) {
+    // The app session has already been cleared by the caller. Do not prevent
+    // logout merely because Google Play services cannot be reached right now.
+    console.warn('[Google Auth] Could not clear Google provider session:', error);
+  }
+};
+
 export const signInWithApple = async () => {
+  if (Platform.OS !== 'ios') {
+    throw new Error('Continue with Apple is only available on Apple devices.');
+  }
+
   const nonce = randomString();
 
   try {
@@ -235,52 +258,6 @@ export const signInWithApple = async () => {
       });
     }
 
-    if (!appleAuthAndroid.isSupported) {
-      console.error('[Apple Auth] Apple Sign In is not supported on Android device');
-      throw new Error('Apple Sign In is not supported on this device.');
-    }
-
-    if (!APPLE_ANDROID_CLIENT_ID || !APPLE_ANDROID_REDIRECT_URI) {
-      console.error('[Apple Auth] Apple Android credentials not configured');
-      throw new Error(
-        'Apple Sign In for Android needs APPLE_ANDROID_CLIENT_ID and APPLE_ANDROID_REDIRECT_URI in services/socialAuthConfig.js.',
-      );
-    }
-
-    const state = randomString();
-    console.log('[Apple Auth] Configuring Apple Android authentication');
-    appleAuthAndroid.configure({
-      clientId: APPLE_ANDROID_CLIENT_ID,
-      redirectUri: APPLE_ANDROID_REDIRECT_URI,
-      responseType: appleAuthAndroid.ResponseType.ALL,
-      scope: appleAuthAndroid.Scope.ALL,
-      nonce,
-      state,
-    });
-
-    console.log('[Apple Auth] Signing in with Apple Android');
-    const response = await appleAuthAndroid.signIn();
-    if (response.state && response.state !== state) {
-      console.error('[Apple Auth] State mismatch - security validation failed');
-      throw new Error('Apple sign in returned an invalid state.');
-    }
-
-    const identityToken = response.id_token || response.identityToken;
-    if (!identityToken) {
-      console.error('[Apple Auth] Apple Android did not return an identity token');
-      throw new Error('Apple did not return an identity token.');
-    }
-
-    console.log('[Apple Auth] Identity token obtained, posting to social endpoint');
-    return postSocialToken({
-      provider: 'apple',
-      identityToken,
-      nonce,
-      user: {
-        email: response.user?.email,
-        name: getAppleDisplayName(response.user?.name),
-      },
-    });
   } catch (error) {
     console.error('[Apple Auth] Error during Apple sign-in:', {
       platform: Platform.OS,

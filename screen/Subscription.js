@@ -20,7 +20,7 @@ const { width } = Dimensions.get('window');
 
 const PLANS = [
   {
-    id: 'f6aacebb-8ec9-4805-bf78-e93ce61f8a16', // 1 Month
+    id: '5c4e5e21-797c-4363-86a6-73dde1bbaf41', // 1 Month
     label: '1 MONTH',
     sub: 'Link up to 1 Device',
     price: '$9.99',
@@ -28,7 +28,7 @@ const PLANS = [
     highlight: true,
   },
   {
-    id: 'e48b3f64-67b8-438b-983c-3b6c87da71f6', // 1 Year
+    id: '4a7b5f34-2481-447f-9149-b9fe7e823c7c', // 1 Year
     label: '1 YEAR',
     sub: 'Link up to 4 Device',
     price: '$79.99',
